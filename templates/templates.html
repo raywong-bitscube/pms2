@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="page-header"><h1 class="page-title">项目模板</h1></div>
+
+<div class="card">
+    <table class="table">
+        <thead><tr><th>模板名称</th><th>编码</th><th>版本</th><th>阶段数</th><th>创建时间</th></tr></thead>
+        <tbody>
+            {{range .Templates}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.Code}}</td>
+                <td>{{.Version}}</td>
+                <td>{{.StageCount}} 个阶段</td>
+                <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="5" style="text-align:center;color:#999;">暂无模板</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

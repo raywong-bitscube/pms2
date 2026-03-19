@@ -5,34 +5,60 @@
         <p class="page-description">{{.Project.Code}} | 项目经理：{{.Project.ManagerName}}</p>
     </div>
     <div style="display:flex;gap:8px;">
-        <a href="/project/{{.Project.ID}}/documents" class="btn btn-default">📄 文档</a>
+        <a href="/documents?project_id={{.Project.ID}}" class="btn btn-default">📄 文档</a>
         <button class="btn btn-primary" onclick="alert('编辑项目')">✏️ 编辑</button>
     </div>
 </div>
 
 <div class="card">
     <div class="flex" style="gap:32px;">
-        <div><div style="color:#999;font-size:12px;">状态</div><div>{{if eq .Project.Status 1}}<span class="tag tag-warning">规划中</span>{{else if eq .Project.Status 2}}<span class="tag tag-primary">进行中</span>{{else}}<span class="tag tag-success">已完成</span>{{end}}</div></div>
-        <div><div style="color:#999;font-size:12px;">整体进度</div><div class="flex" style="align-items:center;gap:8px;"><div class="progress" style="width:150px;"><div class="progress-bar" style="width:{{.Project.Progress}}%"></div></div><span>{{.Project.Progress}}%</span></div></div>
-        <div><div style="color:#999;font-size:12px;">计划周期</div><div>{{if .Project.StartDate}}{{.Project.StartDate.Format "2006-01-02"}}{{end}} - {{if .Project.EndDate}}{{.Project.EndDate.Format "2006-01-02"}}{{end}}</div></div>
+        <div><div style="color:#999;font-size:12px;">状态</div>
+            <div>{{if eq .Project.Status 1}}<span class="tag tag-warning">规划中</span>{{else if eq .Project.Status 2}}<span class="tag tag-primary">进行中</span>{{else}}<span class="tag tag-success">已完成</span>{{end}}</div>
+        </div>
+        <div><div style="color:#999;font-size:12px;">整体进度</div>
+            <div class="flex" style="align-items:center;gap:8px;">
+                <div class="progress" style="width:150px;"><div class="progress-bar" style="width:{{.Project.Progress}}%"></div></div>
+                <span>{{.Project.Progress}}%</span>
+            </div>
+        </div>
+        <div><div style="color:#999;font-size:12px;">计划周期</div><div>{{.Project.StartDate}} - {{.Project.EndDate}}</div></div>
     </div>
+    {{if .Project.Description}}
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
+        <div style="color:#999;font-size:12px;margin-bottom:8px;">项目描述</div>
+        <div>{{.Project.Description}}</div>
+    </div>
+    {{end}}
 </div>
 
 <div class="card">
     <div class="card-header">项目阶段</div>
     <table class="table">
-        <thead><tr><th>阶段</th><th>状态</th><th>进度</th><th>计划开始</th><th>计划结束</th></tr></thead>
+        <thead><tr><th>阶段</th><th>编码</th><th>状态</th><th>进度</th><th>计划开始</th><th>计划结束</th><th>操作</th></tr></thead>
         <tbody>
             {{range .Stages}}
             <tr>
                 <td>{{.Name}}</td>
-                <td>{{if eq .Status 1}}<span class="tag">待开始</span>{{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>{{else}}<span class="tag tag-success">已完成</span>{{end}}</td>
-                <td>{{.Progress}}%</td>
-                <td>{{if .PlanStartDate}}{{.PlanStartDate.Format "2006-01-02"}}{{end}}</td>
-                <td>{{if .PlanEndDate}}{{.PlanEndDate.Format "2006-01-02"}}{{end}}</td>
+                <td>{{.Code}}</td>
+                <td>
+                    {{if eq .Status 1}}<span class="tag">待开始</span>
+                    {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
+                    {{else}}<span class="tag tag-success">已完成</span>{{end}}
+                </td>
+                <td>
+                    <div class="flex" style="align-items:center;gap:8px;">
+                        <div class="progress" style="width:100px;"><div class="progress-bar" style="width:{{.Progress}}%"></div></div>
+                        <span>{{.Progress}}%</span>
+                    </div>
+                </td>
+                <td>{{.PlanStartDate}}</td>
+                <td>{{.PlanEndDate}}</td>
+                <td>
+                    <button class="btn btn-sm btn-default" onclick="updateStage({{.ID}},{{.Status}},{{.Progress}})">更新</button>
+                </td>
             </tr>
             {{else}}
-            <tr><td colspan="5" style="text-align:center;color:#999;">暂无阶段</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:#999;">暂无阶段</td></tr>
             {{end}}
         </tbody>
     </table>
