@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div><h1 class="page-title">项目管理</h1></div>
+    <a href="/project/create" class="btn btn-primary">+ 新建项目</a>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr><th>项目名称</th><th>编码</th><th>项目经理</th><th>状态</th><th>进度</th><th>开始日期</th><th>结束日期</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+            {{range .Projects}}
+            <tr>
+                <td><a href="/project/{{.ID}}">{{.Name}}</a></td>
+                <td>{{.Code}}</td>
+                <td>{{.ManagerName}}</td>
+                <td>
+                    {{if eq .Status 1}}<span class="tag tag-warning">规划中</span>
+                    {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
+                    {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
+                    {{else}}<span class="tag">已归档</span>{{end}}
+                </td>
+                <td>{{.Progress}}%</td>
+                <td>{{if .StartDate}}{{.StartDate.Format "2006-01-02"}}{{end}}</td>
+                <td>{{if .EndDate}}{{.EndDate.Format "2006-01-02"}}{{end}}</td>
+                <td><a href="/project/{{.ID}}" class="btn btn-sm btn-default">查看</a></td>
+            </tr>
+            {{else}}
+            <tr><td colspan="8" style="text-align:center;color:#999;">暂无项目</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

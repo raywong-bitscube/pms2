@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - 项目管理系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">📋 项目管理系统</div>
+            <nav class="sidebar-menu">
+                <a href="/" class="menu-item{{if eq .Title "首页"}} active{{end}}">
+                    <span class="icon">📊</span><span>仪表盘</span>
+                </a>
+                <a href="/projects" class="menu-item{{if eq .Title "项目管理"}} active{{end}}">
+                    <span class="icon">📁</span><span>项目管理</span>
+                </a>
+                <a href="/documents" class="menu-item{{if eq .Title "文档管理"}} active{{end}}">
+                    <span class="icon">📄</span><span>文档管理</span>
+                </a>
+                <a href="/users" class="menu-item{{if eq .Title "用户管理"}} active{{end}}">
+                    <span class="icon">👥</span><span>用户管理</span>
+                </a>
+                <a href="/audit-logs" class="menu-item{{if eq .Title "审计日志"}} active{{end}}">
+                    <span class="icon">📜</span><span>审计日志</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <span class="breadcrumb">{{.Title}}</span>
+                </div>
+                <div class="header-right">
+                    <span style="cursor:pointer;">🔔</span>
+                    <div class="user-info">
+                        <div class="user-avatar">{{index .CurrentUser.RealName 0}}</div>
+                        <span>{{.CurrentUser.RealName}}</span>
+                    </div>
+                    <a href="/logout" style="color:#999;">🚪</a>
+                </div>
+            </header>
+
+            <!-- Content -->
+            <main class="content">
+                {{template "content" .}}
+            </main>
+        </div>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

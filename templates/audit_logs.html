@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="page-header"><h1 class="page-title">审计日志</h1></div>
+<div class="card">
+    <table class="table">
+        <thead><tr><th>ID</th><th>用户</th><th>动作</th><th>分类</th><th>表名</th><th>记录 ID</th><th>IP</th><th>时间</th></tr></thead>
+        <tbody>
+            {{range .Logs}}
+            <tr>
+                <td>{{.ID}}</td>
+                <td>{{.UserID}}</td>
+                <td>{{.ActionType}}</td>
+                <td>{{.ActionCategory}}</td>
+                <td>{{.TableName}}</td>
+                <td>{{.RecordID}}</td>
+                <td>{{.IPAddress}}</td>
+                <td>{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+            </tr>
+            {{else}}
+            <tr><td colspan="8" style="text-align:center;color:#999;">暂无日志</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

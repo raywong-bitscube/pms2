@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div><h1 class="page-title">用户管理</h1></div>
+    <button class="btn btn-primary" onclick="alert('新建用户')">+ 新建用户</button>
+</div>
+<div class="card">
+    <table class="table">
+        <thead><tr><th>用户名</th><th>姓名</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody>
+            {{range .Users}}
+            <tr>
+                <td>{{.Username}}</td>
+                <td>{{.RealName}}</td>
+                <td>{{.Email}}</td>
+                <td>{{if eq .Status 1}}<span class="tag tag-success">正常</span>{{else}}<span class="tag">禁用</span>{{end}}</td>
+                <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+                <td><button class="btn btn-sm btn-default" onclick="alert('编辑用户')">编辑</button></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
