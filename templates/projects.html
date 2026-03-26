@@ -5,36 +5,38 @@
 </div>
 
 <div class="card">
-    <table class="table">
-        <thead>
-            <tr><th>项目名称</th><th>编码</th><th>项目经理</th><th>状态</th><th>进度</th><th>开始日期</th><th>结束日期</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-            {{range .Projects}}
-            <tr>
-                <td><a href="/project/{{.ID}}">{{.Name}}</a></td>
-                <td>{{.Code}}</td>
-                <td>{{.ManagerName}}</td>
-                <td>
-                    {{if eq .Status 1}}<span class="tag tag-warning">规划中</span>
-                    {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
-                    {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
-                    {{else}}<span class="tag">已归档</span>{{end}}
-                </td>
-                <td><div class="progress"><div class="progress-bar" style="width:{{.Progress}}%"></div></div></td>
-                <td>{{.StartDate}}</td>
-                <td>{{.EndDate}}</td>
-                <td>
-                    <a href="/project/{{.ID}}" class="btn btn-sm btn-default">查看</a>
-                    <button class="btn btn-sm btn-default" onclick="editProject({{.ID}},'{{.Name}}','{{.Code}}',{{.Status}},{{.Progress}})">编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProject({{.ID}})">删除</button>
-                </td>
-            </tr>
-            {{else}}
-            <tr><td colspan="8" style="text-align:center;color:#999;">暂无项目</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr><th>项目名称</th><th>编码</th><th>项目经理</th><th>状态</th><th>进度</th><th>开始日期</th><th>结束日期</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+                {{range .Projects}}
+                <tr>
+                    <td><a href="/project/{{.ID}}">{{.Name}}</a></td>
+                    <td>{{.Code}}</td>
+                    <td>{{.ManagerName}}</td>
+                    <td>
+                        {{if eq .Status 1}}<span class="tag tag-warning">规划中</span>
+                        {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
+                        {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
+                        {{else}}<span class="tag">已归档</span>{{end}}
+                    </td>
+                    <td><div class="progress"><div class="progress-bar" style="width:{{.Progress}}%"></div></div></td>
+                    <td>{{.StartDate}}</td>
+                    <td>{{.EndDate}}</td>
+                    <td>
+                        <a href="/project/{{.ID}}" class="btn btn-sm btn-default">查看</a>
+                        <button class="btn btn-sm btn-default" onclick="editProject({{.ID}},'{{.Name}}','{{.Code}}',{{.Status}},{{.Progress}})">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProject({{.ID}})">删除</button>
+                    </td>
+                </tr>
+                {{else}}
+                <tr><td colspan="8" style="text-align:center;color:#999;">暂无项目</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <!-- 创建项目模态框 -->

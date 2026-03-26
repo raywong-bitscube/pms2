@@ -47,9 +47,7 @@
                 <td>{{.PlanEndDate}}</td>
                 <td>
                     <a href="/stage/{{.ID}}" class="btn btn-sm btn-default">浏览</a>
-                    <button class="btn btn-sm" onclick="ss({{.ID}},1)">待开始</button>
                     <button class="btn btn-sm btn-primary" onclick="us({{.ID}})">更新</button>
-                    <button class="btn btn-sm btn-success" onclick="ss({{.ID}},3)">结束</button>
                     <button class="btn btn-sm btn-default" onclick="up({{.ID}},{{$.Project.ID}})">上传</button>
                 </td>
             </tr>
@@ -136,6 +134,6 @@ function us(sid){document.getElementById('usi').value=sid;document.getElementByI
 async function sv(){var id=document.getElementById('usi').value;var p=document.getElementById('upv').value;var r=await fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(id),status:2,progress:parseInt(p)})});var res=await r.json();if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}}
 function ss(sid,st){fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(sid),status:st,progress:st==3?100:0})}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}})}
 function up(sid,pid){document.getElementById('upid').value=sid;document.getElementById('uppid').value=pid;document.getElementById('upm').style.display='flex'}
-async function uf(){var btn=document.getElementById('upb');btn.disabled=true;btn.textContent='上传中...';var form=document.getElementById('upf');var formData=new FormData(form);fetch('/documents/api',{method:'POST',body:formData,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('上传失败：'+res.message);btn.disabled=false;btn.textContent='上传'}}).catch(function(e){alert('上传失败：'+e.message);btn.disabled=false;btn.textContent='上传'})}
+async function uf(){var btn=document.getElementById('upb');btn.disabled=true;btn.textContent='上传中...';var form=document.getElementById('upf');var formData=new FormData(form);try{var r=await fetch('/documents/api',{method:'POST',body:formData,credentials:'same-origin'});var res=await r.json();if(res.success){window.location.reload()}else{alert('上传失败：'+res.message);btn.disabled=false;btn.textContent='上传'}}catch(e){alert('上传失败：'+e.message);btn.disabled=false;btn.textContent='上传'}}
 </script>
 {{end}}

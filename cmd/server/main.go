@@ -16,7 +16,7 @@ import (
 )
 
 var config = &Config{
-	ServerPort: 8808, DBHost: "localhost", DBPort: 3306,
+	ServerPort: 6606, DBHost: "localhost", DBPort: 3306,
 	DBUser: "pms_user", DBPassword: "PmsPass@2026",
 	DBName: "project_management", UploadDir: "./uploads",
 }
@@ -218,6 +218,66 @@ func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 }
 
+func stageDetailHandler(w http.ResponseWriter, r *http.Request) {
+	u := getSession(r)
+	if u == nil { http.Redirect(w,r,"/login",303); return }
+	id,_ := strconv.Atoi(r.URL.Path[len("/stage/"):])
+	
+	// 获取阶段信息
+	var s ProjectStage
+	db.QueryRow("SELECT id,project_id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE id=?",id).
+		Scan(&s.ID,&s.ProjectID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate)
+	
+	// 获取项目信息
+	var p Project
+	db.QueryRow("SELECT id,name,code FROM project WHERE id=?",s.ProjectID).
+		Scan(&p.ID,&p.Name,&p.Code)
+	
+	// 获取文档列表
+	type Doc struct {
+		ID, ProjectID int; Name, Type, FileName, FilePath, Version, CreatedAtStr, FileSizeStr string
+		FileSize int64; Status, UploadedBy int
+	}
+	var ds []Doc
+	rows,_ := db.Query(`SELECT id,project_id,name,type,file_name,file_path,version,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i'),file_size,status,uploaded_by FROM document WHERE stage_id=? AND status=1 ORDER BY created_at DESC`,id)
+	for rows.Next() {
+		var d Doc
+		rows.Scan(&d.ID,&d.ProjectID,&d.Name,&d.Type,&d.FileName,&d.FilePath,&d.Version,&d.CreatedAtStr,&d.FileSize,&d.Status,&d.UploadedBy)
+		if d.FileSize >= 1048576 { d.FileSizeStr = fmt.Sprintf("%.2f MB",float64(d.FileSize)/1048576) } else if d.FileSize >= 1024 { d.FileSizeStr = fmt.Sprintf("%.2f KB",float64(d.FileSize)/1024) } else { d.FileSizeStr = fmt.Sprintf("%d B",d.FileSize) }
+		ds=append(ds,d)
+	}
+	rows.Close()
+	
+	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/stage_detail.html"))
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"阶段详情","CurrentUser":u,"Stage":s,"Project":p,"Documents":ds})
+}
+
+func stageAPI(w http.ResponseWriter, r *http.Request) {
+	u := getSession(r)
+	if u == nil { http.Error(w,"Unauthorized",401); return }
+	
+	if r.Method == "PUT" {
+		var req struct {
+			ID, OrderNum, Status, Progress int
+			Name, Code, PlanStartDate, PlanEndDate string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"解析失败"})
+			return
+		}
+		_, err := db.Exec(`UPDATE project_stage SET name=?,code=?,order_num=?,status=?,progress=?,plan_start_date=?,plan_end_date=?,updated_at=NOW() WHERE id=?`,
+			req.Name,req.Code,req.OrderNum,req.Status,req.Progress,req.PlanStartDate,req.PlanEndDate,req.ID)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
+			return
+		}
+		auditLog(u.ID,"update","project_stage","project_stage",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"Method not allowed"})
+	}
+}
+
 func documentsHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
@@ -228,12 +288,20 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			if e != nil { json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"上传失败"}); return }
 			defer f.Close()
 			pid,_ := strconv.Atoi(r.FormValue("project_id"))
+			sidStr := r.FormValue("stage_id")
+			var sid int
+			if sidStr != "" { sid,_ = strconv.Atoi(sidStr) }
 			os.MkdirAll(fmt.Sprintf("%s/%d",config.UploadDir,pid),0755)
 			fp := fmt.Sprintf("%s/%d/%s",config.UploadDir,pid,h.Filename)
 			dst,_ := os.Create(fp); defer dst.Close()
 			buf := make([]byte,32<<20); n,_ := f.Read(buf); dst.Write(buf[:n])
-			db.Exec(`INSERT INTO document(project_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,1,?,NOW())`,
-				pid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
+			if sid > 0 {
+				db.Exec(`INSERT INTO document(project_id,stage_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,?,1,?,NOW())`,
+					pid,sid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
+			} else {
+				db.Exec(`INSERT INTO document(project_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,1,?,NOW())`,
+					pid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
+			}
 			auditLog(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		} else if r.Method == "DELETE" {
@@ -306,11 +374,15 @@ func main() {
 	os.MkdirAll(config.UploadDir,0755)
 	http.HandleFunc("/login",loginHandler)
 	http.HandleFunc("/logout",logoutHandler)
+	http.HandleFunc("/documents/api",documentsHandler)
+	http.HandleFunc("/documents",documentsHandler)
+	http.HandleFunc("/projects",projectsHandler)
 	http.HandleFunc("/projects/api",projectsHandler)
 	http.HandleFunc("/",homeHandler)
 	http.HandleFunc("/project/",projectDetailHandler)
 	http.HandleFunc("/project/stages/api",projectStagesAPI)
-	http.HandleFunc("/documents",documentsHandler)
+	http.HandleFunc("/stage/",stageDetailHandler)
+	http.HandleFunc("/stage/api",stageAPI)
 	http.HandleFunc("/users",usersHandler)
 	http.HandleFunc("/audit-logs",auditLogsHandler)
 	http.HandleFunc("/templates",templatesHandler)

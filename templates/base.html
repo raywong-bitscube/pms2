@@ -2,14 +2,17 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{{.Title}} - 项目管理系统</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="layout">
+        <!-- 移动端遮罩层 -->
+        <div class="menu-overlay" onclick="toggleMenu()"></div>
+        
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-logo">📋 项目管理系统</div>
             <nav class="sidebar-menu">
                 <a href="/" class="menu-item{{if eq .Title "首页"}} active{{end}}">
@@ -38,6 +41,7 @@
             <!-- Header -->
             <header class="header">
                 <div class="header-left">
+                    <button class="menu-toggle" onclick="toggleMenu()">☰</button>
                     <span class="breadcrumb">{{.Title}}</span>
                 </div>
                 <div class="header-right">

@@ -10,11 +10,11 @@
     </div>
     <div class="stat-card">
         <div class="stat-value">{{.Stats.ActiveProjects}}</div>
-        <div class="stat-label">进行中项目</div>
+        <div class="stat-label">进行中</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{.Stats.TotalDocuments}}</div>
-        <div class="stat-label">文档总数</div>
+        <div class="stat-label">文档数</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{.Stats.TotalUsers}}</div>
@@ -24,30 +24,32 @@
 
 <div class="card">
     <div class="card-header">最近项目</div>
-    <table class="table">
-        <thead>
-            <tr><th>项目名称</th><th>编码</th><th>状态</th><th>进度</th><th>创建时间</th></tr>
-        </thead>
-        <tbody>
-            {{range .RecentProjects}}
-            <tr>
-                <td><a href="/project/{{.ID}}">{{.Name}}</a></td>
-                <td>{{.Code}}</td>
-                <td>
-                    {{if eq .Status 1}}<span class="tag tag-warning">规划中</span>
-                    {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
-                    {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
-                    {{else}}<span class="tag">已归档</span>{{end}}
-                </td>
-                <td>
-                    <div class="progress"><div class="progress-bar" style="width: {{.Progress}}%"></div></div>
-                </td>
-                <td>{{.CreatedAt.Format "2006-01-02"}}</td>
-            </tr>
-            {{else}}
-            <tr><td colspan="5" style="text-align:center;color:#999;">暂无项目</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr><th>项目名称</th><th>编码</th><th>状态</th><th>进度</th><th>创建时间</th></tr>
+            </thead>
+            <tbody>
+                {{range .RecentProjects}}
+                <tr>
+                    <td><a href="/project/{{.ID}}">{{.Name}}</a></td>
+                    <td>{{.Code}}</td>
+                    <td>
+                        {{if eq .Status 1}}<span class="tag tag-warning">规划中</span>
+                        {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
+                        {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
+                        {{else}}<span class="tag">已归档</span>{{end}}
+                    </td>
+                    <td>
+                        <div class="progress"><div class="progress-bar" style="width: {{.Progress}}%"></div></div>
+                    </td>
+                    <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="5" style="text-align:center;color:#999;">暂无项目</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
 </div>
 {{end}}
