@@ -27,6 +27,9 @@
                 <a href="/audit-logs" class="menu-item{{if eq .Title "审计日志"}} active{{end}}">
                     <span class="icon">📜</span><span>审计日志</span>
                 </a>
+                <a href="/system-config" class="menu-item{{if eq .Title "系统常量"}} active{{end}}">
+                    <span class="icon">⚙️</span><span>系统常量</span>
+                </a>
             </nav>
         </aside>
 
@@ -40,7 +43,7 @@
                 <div class="header-right">
                     <span style="cursor:pointer;">🔔</span>
                     <div class="user-info">
-                        <div class="user-avatar">{{index .CurrentUser.RealName 0}}</div>
+                        <div class="user-avatar">{{.CurrentUser.ID}}</div>
                         <span>{{.CurrentUser.RealName}}</span>
                     </div>
                     <a href="/logout" style="color:#999;">🚪</a>
@@ -49,7 +52,7 @@
 
             <!-- Content -->
             <main class="content">
-                {{if .}}{{.}}{{end}}
+                {{template "content" .}}
             </main>
         </div>
     </div>

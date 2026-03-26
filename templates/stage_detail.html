@@ -1,0 +1,145 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div>
+        <h1 class="page-title">{{.StageName}} - 阶段详情</h1>
+        <p style="color:#999;margin-top:8px;">项目：{{.ProjectName}}</p>
+    </div>
+    <a href="/project/{{.ProjectID}}" class="btn btn-default">← 返回项目</a>
+</div>
+
+<div class="card">
+    <div class="card-header">阶段信息</div>
+    <table class="table">
+        <tr><td width="120">阶段名称</td><td>{{.StageName}}</td></tr>
+        <tr><td>阶段编码</td><td>{{.StageCode}}</td></tr>
+        <tr><td>状态</td><td>
+            {{if eq .Status 1}}<span class="tag">待开始</span>
+            {{else if eq .Status 2}}<span class="tag tag-primary">进行中</span>
+            {{else if eq .Status 3}}<span class="tag tag-success">已完成</span>
+            {{else}}<span class="tag">已归档</span>{{end}}
+        </td></tr>
+        <tr><td>进度</td><td>
+            <div class="progress" style="width:200px;"><div class="progress-bar" style="width:{{.Progress}}%"></div></div>
+            {{.Progress}}%
+        </td></tr>
+        <tr><td>计划开始</td><td>{{if .StartDate}}{{.StartDate}}{{else}}-{{end}}</td></tr>
+        <tr><td>计划结束</td><td>{{if .EndDate}}{{.EndDate}}{{else}}-{{end}}</td></tr>
+        <tr><td>创建时间</td><td>{{.CreatedAt}}</td></tr>
+        <tr><td>更新时间</td><td>{{.UpdatedAt}}</td></tr>
+    </table>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <div class="card-header flex-between">
+        <span>相关文档</span>
+        <button class="btn btn-primary btn-sm" onclick="up({{.StageID}},{{.ProjectID}})">上传文档</button>
+    </div>
+    <table class="table">
+        <thead>
+            <tr><th>文档名称</th><th>类型</th><th>文件名</th><th>大小</th><th>版本</th><th>上传人</th><th>上传时间</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+            {{range .Documents}}
+            <tr>
+                <td><div class="text-truncate" title="{{.Name}}">{{.Name}}</div></td>
+                <td>{{.Type}}</td>
+                <td><div class="text-truncate" title="{{.FileName}}">{{.FileName}}</div></td>
+                <td data-bytes="{{.FileSize}}" class="file-size">-</td>
+                <td>{{.Version}}</td>
+                <td>{{.UploadedBy}}</td>
+                <td>{{.CreatedAt}}</td>
+                <td>
+                    <a href="/documents/download?id={{.ID}}&name={{.FileName}}" class="btn btn-sm btn-default">下载</a>
+                    <button class="btn btn-sm btn-danger" onclick="deleteDocument({{.ID}})">删除</button>
+                </td>
+            </tr>
+            {{else}}
+            <tr><td colspan="8" style="text-align:center;color:#999;">暂无文档</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div id="upm" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header"><h3>上传文档</h3><span class="close" onclick="cm('upm')">&times;</span></div>
+        <div class="modal-body">
+            <form id="upf" enctype="multipart/form-data">
+                <input type="hidden" id="upid" name="stage_id" value="{{.StageID}}">
+                <input type="hidden" id="uppid" name="project_id" value="{{.ProjectID}}">
+                <div class="form-group">
+                    <label>文档名称</label>
+                    <input type="text" id="upn" name="name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>文档类型</label>
+                    <select id="upt" name="type" class="form-control">
+                        <option value="requirement">需求文档</option>
+                        <option value="design">设计文档</option>
+                        <option value="code">代码文档</option>
+                        <option value="test">测试文档</option>
+                        <option value="manual">用户手册</option>
+                        <option value="other">其他</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>选择文件</label>
+                    <input type="file" id="upfl" name="file" class="form-control" required>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="cm('upm')">取消</button>
+            <button class="btn btn-primary" id="upb" onclick="uf()">上传</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-content{background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee}
+.modal-header h3{margin:0;font-size:18px}
+.modal-body{padding:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #eee}
+.close{cursor:pointer;font-size:24px;color:#999}
+.close:hover{color:#333}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-weight:500}
+.form-control{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box}
+.form-control:focus{outline:none;border-color:#1890ff}
+textarea.form-control{resize:vertical}
+.btn-sm{padding:4px 8px;font-size:12px}
+.text-truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.text-truncate:hover{color:#1890ff}
+</style>
+
+<script>
+document.querySelectorAll('.file-size').forEach(function(el){var b=parseInt(el.getAttribute('data-bytes'));el.textContent=(b/1024).toFixed(2)+' KB'});
+
+function cm(id){document.getElementById(id).style.display='none'}
+function up(sid,pid){document.getElementById('upid').value=sid;document.getElementById('uppid').value=pid;document.getElementById('upm').style.display='flex'}
+
+async function uf(){
+    var btn=document.getElementById('upb');
+    btn.disabled=true;
+    btn.textContent='上传中...';
+    var form=document.getElementById('upf');
+    var formData=new FormData(form);
+    try{
+        var r=await fetch('/documents/api',{method:'POST',body:formData,credentials:'same-origin'});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('上传失败：'+res.message);btn.disabled=false;btn.textContent='上传'}
+    }catch(e){alert('上传失败：'+e.message);btn.disabled=false;btn.textContent='上传'}
+}
+
+async function deleteDocument(id){
+    if(!confirm('确定要删除这个文档吗？'))return;
+    try{
+        var r=await fetch('/documents/api',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id}),credentials:'same-origin'});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('删除失败：'+res.message)}
+    }catch(e){alert('删除失败：'+e.message)}
+}
+</script>
+{{end}}

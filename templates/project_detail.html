@@ -1,40 +1,32 @@
 {{define "content"}}
-<div class="flex-between" style="margin-bottom:16px;">
-    <div>
-        <h1 class="page-title">{{.Project.Name}}</h1>
-        <p class="page-description">{{.Project.Code}} | 项目经理：{{.Project.ManagerName}}</p>
-    </div>
-    <div style="display:flex;gap:8px;">
-        <a href="/documents?project_id={{.Project.ID}}" class="btn btn-default">📄 文档</a>
-        <button class="btn btn-primary" onclick="alert('编辑项目')">✏️ 编辑</button>
-    </div>
+<div class="page-header flex-between">
+    <div><h1 class="page-title">{{.Project.Name}}</h1></div>
+    <button class="btn btn-primary" onclick="ep(this)" data-id="{{.Project.ID}}" data-name="{{.Project.Name}}" data-code="{{.Project.Code}}" data-status="{{.Project.Status}}" data-progress="{{.Project.Progress}}">编辑项目</button>
 </div>
 
 <div class="card">
-    <div class="flex" style="gap:32px;">
-        <div><div style="color:#999;font-size:12px;">状态</div>
-            <div>{{if eq .Project.Status 1}}<span class="tag tag-warning">规划中</span>{{else if eq .Project.Status 2}}<span class="tag tag-primary">进行中</span>{{else}}<span class="tag tag-success">已完成</span>{{end}}</div>
-        </div>
-        <div><div style="color:#999;font-size:12px;">整体进度</div>
-            <div class="flex" style="align-items:center;gap:8px;">
-                <div class="progress" style="width:150px;"><div class="progress-bar" style="width:{{.Project.Progress}}%"></div></div>
-                <span>{{.Project.Progress}}%</span>
-            </div>
-        </div>
-        <div><div style="color:#999;font-size:12px;">计划周期</div><div>{{.Project.StartDate}} - {{.Project.EndDate}}</div></div>
-    </div>
-    {{if .Project.Description}}
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
-        <div style="color:#999;font-size:12px;margin-bottom:8px;">项目描述</div>
-        <div>{{.Project.Description}}</div>
-    </div>
-    {{end}}
+    <div class="card-header">项目信息</div>
+    <table class="table">
+        <tr><td width="100">项目编码</td><td>{{.Project.Code}}</td></tr>
+        <tr><td>状态</td><td>
+            {{if eq .Project.Status 1}}<span class="tag tag-warning">规划中</span>
+            {{else if eq .Project.Status 2}}<span class="tag tag-primary">进行中</span>
+            {{else}}<span class="tag tag-success">已完成</span>{{end}}
+        </td></tr>
+        <tr><td>进度</td><td><div class="progress" style="width:200px;"><div class="progress-bar" style="width:{{.Project.Progress}}%"></div></div> {{.Project.Progress}}%</td></tr>
+        <tr><td>项目经理</td><td>{{.Project.ManagerName}}</td></tr>
+        <tr><td>开始日期</td><td>{{.Project.StartDate}}</td></tr>
+        <tr><td>结束日期</td><td>{{.Project.EndDate}}</td></tr>
+        <tr><td>描述</td><td>{{.Project.Description}}</td></tr>
+    </table>
 </div>
 
-<div class="card">
+<div class="card" style="margin-top:20px;">
     <div class="card-header">项目阶段</div>
     <table class="table">
-        <thead><tr><th>阶段</th><th>编码</th><th>状态</th><th>进度</th><th>计划开始</th><th>计划结束</th><th>操作</th></tr></thead>
+        <thead>
+            <tr><th>阶段</th><th>编码</th><th>状态</th><th>进度</th><th>计划开始</th><th>计划结束</th><th>操作</th></tr>
+        </thead>
         <tbody>
             {{range .Stages}}
             <tr>
@@ -54,7 +46,11 @@
                 <td>{{.PlanStartDate}}</td>
                 <td>{{.PlanEndDate}}</td>
                 <td>
-                    <button class="btn btn-sm btn-default" onclick="updateStage({{.ID}},{{.Status}},{{.Progress}})">更新</button>
+                    <a href="/stage/{{.ID}}" class="btn btn-sm btn-default">浏览</a>
+                    <button class="btn btn-sm" onclick="ss({{.ID}},1)">待开始</button>
+                    <button class="btn btn-sm btn-primary" onclick="us({{.ID}})">更新</button>
+                    <button class="btn btn-sm btn-success" onclick="ss({{.ID}},3)">结束</button>
+                    <button class="btn btn-sm btn-default" onclick="up({{.ID}},{{$.Project.ID}})">上传</button>
                 </td>
             </tr>
             {{else}}
@@ -63,4 +59,83 @@
         </tbody>
     </table>
 </div>
+
+<div id="epm" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header"><h3>编辑项目</h3><span class="close" onclick="cm('epm')">&times;</span></div>
+        <div class="modal-body">
+            <input type="hidden" id="epi">
+            <div class="form-group"><label>项目名称</label><input type="text" id="epn" class="form-control"></div>
+            <div class="form-group"><label>项目编码</label><input type="text" id="epc" class="form-control"></div>
+            <div class="form-group"><label>状态</label><select id="eps" class="form-control"><option value="1">规划中</option><option value="2">进行中</option><option value="3">已完成</option></select></div>
+            <div class="form-group"><label>进度</label><input type="number" id="epp" class="form-control" min="0" max="100"></div>
+            <div class="form-group"><label>描述</label><textarea id="epd" class="form-control" rows="3"></textarea></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="cm('epm')">取消</button>
+            <button class="btn btn-primary" onclick="spd()">保存</button>
+        </div>
+    </div>
+</div>
+
+<div id="um" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-header"><h3>更新进度</h3><span class="close" onclick="cm('um')">&times;</span></div>
+        <div class="modal-body">
+            <input type="hidden" id="usi">
+            <div class="form-group"><label>进度 (0-100)</label><input type="number" id="upv" class="form-control" min="0" max="100"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="cm('um')">取消</button>
+            <button class="btn btn-primary" onclick="sv()">保存</button>
+        </div>
+    </div>
+</div>
+
+<div id="upm" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header"><h3>上传文档</h3><span class="close" onclick="cm('upm')">&times;</span></div>
+        <div class="modal-body">
+            <form id="upf" enctype="multipart/form-data">
+                <input type="hidden" id="upid" name="stage_id">
+                <input type="hidden" id="uppid" name="project_id">
+                <div class="form-group"><label>文档名称</label><input type="text" id="upn" name="name" class="form-control" required></div>
+                <div class="form-group"><label>文档类型</label><select id="upt" name="type" class="form-control"><option value="requirement">需求文档</option><option value="design">设计文档</option><option value="code">代码文档</option><option value="test">测试文档</option><option value="manual">用户手册</option><option value="other">其他</option></select></div>
+                <div class="form-group"><label>选择文件</label><input type="file" id="upfl" name="file" class="form-control" required></div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="cm('upm')">取消</button>
+            <button class="btn btn-primary" id="upb" onclick="uf()">上传</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-content{background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee}
+.modal-header h3{margin:0;font-size:18px}
+.modal-body{padding:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #eee}
+.close{cursor:pointer;font-size:24px;color:#999}
+.close:hover{color:#333}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-weight:500}
+.form-control{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box}
+.form-control:focus{outline:none;border-color:#1890ff}
+textarea.form-control{resize:vertical}
+.btn-sm{padding:4px 8px;font-size:12px}
+</style>
+
+<script>
+function ep(btn){var d=btn.dataset;document.getElementById('epi').value=d.id;document.getElementById('epn').value=d.name;document.getElementById('epc').value=d.code;document.getElementById('eps').value=d.status;document.getElementById('epp').value=d.progress;document.getElementById('epm').style.display='flex'}
+function cm(id){document.getElementById(id).style.display='none'}
+async function spd(){var d={id:parseInt(document.getElementById('epi').value),name:document.getElementById('epn').value,code:document.getElementById('epc').value,status:parseInt(document.getElementById('eps').value),progress:parseInt(document.getElementById('epp').value),description:document.getElementById('epd').value};var r=await fetch('/projects/api',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var res=await r.json();if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}}
+function us(sid){document.getElementById('usi').value=sid;document.getElementById('um').style.display='flex'}
+async function sv(){var id=document.getElementById('usi').value;var p=document.getElementById('upv').value;var r=await fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(id),status:2,progress:parseInt(p)})});var res=await r.json();if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}}
+function ss(sid,st){fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(sid),status:st,progress:st==3?100:0})}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}})}
+function up(sid,pid){document.getElementById('upid').value=sid;document.getElementById('uppid').value=pid;document.getElementById('upm').style.display='flex'}
+async function uf(){var btn=document.getElementById('upb');btn.disabled=true;btn.textContent='上传中...';var form=document.getElementById('upf');var formData=new FormData(form);fetch('/documents/api',{method:'POST',body:formData,credentials:'same-origin'}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('上传失败：'+res.message);btn.disabled=false;btn.textContent='上传'}}).catch(function(e){alert('上传失败：'+e.message);btn.disabled=false;btn.textContent='上传'})}
+</script>
 {{end}}
