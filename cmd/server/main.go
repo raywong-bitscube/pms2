@@ -45,8 +45,9 @@ type ProjectStage struct {
 }
 
 type Document struct {
-	ID int; ProjectID int; Name string; Type string; FileName string
-	FileSize int64; Version string; Status int; UploadedBy int; CreatedAt time.Time
+	ID int; ProjectID int; ProjectName string; StageID int; StageName string
+	Name string; Type string; FileName string; FileSize int64; Version string
+	Status int; UploadedBy int; UploadedByName string; CreatedAt time.Time
 }
 
 func initDB() error {
@@ -314,8 +315,8 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ds []Document
-	rows,_ := db.Query(`SELECT id,project_id,name,type,file_name,file_size,version,status,uploaded_by,created_at FROM document WHERE status=1 ORDER BY created_at DESC`)
-	for rows.Next() { var d Document; rows.Scan(&d.ID,&d.ProjectID,&d.Name,&d.Type,&d.FileName,&d.FileSize,&d.Version,&d.Status,&d.UploadedBy,&d.CreatedAt); ds=append(ds,d) }
+	rows,_ := db.Query(`SELECT d.id,d.project_id,p.name,d.stage_id,IFNULL(s.name,'-'),d.name,d.type,d.file_name,d.file_size,d.version,d.status,d.uploaded_by,IFNULL(u.real_name,u.username),d.created_at FROM document d LEFT JOIN project p ON d.project_id=p.id LEFT JOIN project_stage s ON d.stage_id=s.id LEFT JOIN user u ON d.uploaded_by=u.id WHERE d.status=1 ORDER BY d.created_at DESC`)
+	for rows.Next() { var d Document; rows.Scan(&d.ID,&d.ProjectID,&d.ProjectName,&d.StageID,&d.StageName,&d.Name,&d.Type,&d.FileName,&d.FileSize,&d.Version,&d.Status,&d.UploadedBy,&d.UploadedByName,&d.CreatedAt); ds=append(ds,d) }
 	rows.Close()
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/documents.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"文档管理","CurrentUser":u,"Documents":ds})
@@ -372,21 +373,22 @@ func main() {
 	if err := initDB(); err != nil { log.Fatalf("DB error:%v",err) }
 	log.Printf("Database connected")
 	os.MkdirAll(config.UploadDir,0755)
+	http.Handle("/static/",http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))
 	http.HandleFunc("/login",loginHandler)
 	http.HandleFunc("/logout",logoutHandler)
 	http.HandleFunc("/documents/api",documentsHandler)
 	http.HandleFunc("/documents",documentsHandler)
 	http.HandleFunc("/projects",projectsHandler)
 	http.HandleFunc("/projects/api",projectsHandler)
-	http.HandleFunc("/",homeHandler)
 	http.HandleFunc("/project/",projectDetailHandler)
 	http.HandleFunc("/project/stages/api",projectStagesAPI)
-	http.HandleFunc("/stage/",stageDetailHandler)
 	http.HandleFunc("/stage/api",stageAPI)
+	http.HandleFunc("/stage/",stageDetailHandler)
+	http.HandleFunc("/users/api",usersHandler)
 	http.HandleFunc("/users",usersHandler)
 	http.HandleFunc("/audit-logs",auditLogsHandler)
 	http.HandleFunc("/templates",templatesHandler)
-	http.Handle("/static/",http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))
+	http.HandleFunc("/",homeHandler)
 	log.Printf("PMS starting on port %d",config.ServerPort)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",config.ServerPort),nil))
 }

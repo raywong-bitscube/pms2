@@ -1,8 +1,19 @@
 // Project Management System - Frontend JavaScript
 
+// Mobile menu toggle
+function toggleMenu() {
+    var sidebar = document.getElementById('sidebar');
+    var overlay = document.querySelector('.menu-overlay');
+    if (sidebar && overlay) {
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+    }
+}
+
 // Modal functions
 function showCreateModal() { document.getElementById('createModal').style.display = 'flex'; }
 function showUploadModal() { document.getElementById('uploadModal').style.display = 'flex'; }
+function showUserModal() { document.getElementById('userModal').style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
 // Project functions
@@ -144,10 +155,10 @@ async function deleteDocument(id) {
 // User functions
 async function createUser() {
     const data = {
-        username: document.getElementById('newUsername').value,
-        password: document.getElementById('newPassword').value,
-        real_name: document.getElementById('newRealName').value,
-        email: document.getElementById('newEmail').value
+        Username: document.getElementById('newUsername').value,
+        Password: document.getElementById('newPassword').value,
+        RealName: document.getElementById('newRealName').value,
+        Email: document.getElementById('newEmail').value
     };
     
     const res = await fetch('/users/api', {
