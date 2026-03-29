@@ -77,17 +77,32 @@ async function saveProject() {
 async function deleteProject(id) {
     if (!confirm('确定要删除这个项目吗？')) return;
     
-    const res = await fetch('/projects/api', {
-        method: 'DELETE',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id})
-    });
-    const result = await res.json();
+    // 显示加载提示
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '删除中...';
     
-    if (result.success) {
-        window.location.reload();
-    } else {
-        alert('删除失败：' + result.message);
+    try {
+        const res = await fetch('/projects/api', {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id})
+        });
+        const result = await res.json();
+        
+        if (result.success) {
+            showNotification('删除成功', 'success');
+            setTimeout(() => window.location.reload(), 500);
+        } else {
+            alert('删除失败：' + result.message);
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (e) {
+        alert('网络错误：' + e.message);
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 
@@ -155,10 +170,10 @@ async function deleteDocument(id) {
 // User functions
 async function createUser() {
     const data = {
-        Username: document.getElementById('newUsername').value,
-        Password: document.getElementById('newPassword').value,
-        RealName: document.getElementById('newRealName').value,
-        Email: document.getElementById('newEmail').value
+        username: document.getElementById('newUsername').value,
+        password: document.getElementById('newPassword').value,
+        real_name: document.getElementById('newRealName').value,
+        email: document.getElementById('newEmail').value
     };
     
     const res = await fetch('/users/api', {
