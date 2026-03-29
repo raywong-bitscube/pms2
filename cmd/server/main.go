@@ -154,9 +154,9 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// 页面路由
+	// 页面路由 - 只显示未归档的项目 (status != 4)
 	var ps []Project
-	rows,_ := db.Query(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description,p.created_at FROM project p LEFT JOIN user u ON p.manager_id=u.id ORDER BY p.created_at DESC`)
+	rows,_ := db.Query(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description,p.created_at FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.status != 4 ORDER BY p.created_at DESC`)
 	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description,&p.CreatedAt); ps=append(ps,p) }
 	rows.Close()
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/projects.html"))
