@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -28,6 +29,71 @@ type Config struct {
 
 var db *sql.DB
 var sessions = make(map[string]*User)
+
+// 审计日志队列 - 批量写入优化
+type auditLogEntry struct {
+	uid       int
+	atype     string
+	acat      string
+	tbl       string
+	rid       int64
+	old, nw   string
+	ip, ua    string
+	url, meth string
+}
+
+var auditLogChan = make(chan auditLogEntry, 100)
+
+// 启动审计日志批量写入协程
+func initAuditLogWorker() {
+	go func() {
+		batch := make([]auditLogEntry, 0, 10)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case entry := <-auditLogChan:
+				batch = append(batch, entry)
+				if len(batch) >= 10 {
+					flushAuditLogs(batch)
+					batch = batch[:0]
+				}
+			case <-ticker.C:
+				if len(batch) > 0 {
+					flushAuditLogs(batch)
+					batch = batch[:0]
+				}
+			}
+		}
+	}()
+}
+
+func flushAuditLogs(batch []auditLogEntry) {
+	if len(batch) == 0 || db == nil { return }
+	
+	// 批量插入
+	values := make([]interface{}, 0, len(batch)*11)
+	placeholder := make([]string, 0, len(batch))
+	
+	for _, e := range batch {
+		placeholder = append(placeholder, "(?,?,?,?,?,?,?,?,?,?,?,NOW())")
+		var oldData, newData interface{}
+		if e.old == "" { oldData = nil } else { oldData = e.old }
+		if e.nw == "" { newData = nil } else { newData = e.nw }
+		values = append(values, e.uid, e.atype, e.acat, e.tbl, e.rid, oldData, newData, e.ip, e.ua, e.url, e.meth)
+	}
+	
+	query := fmt.Sprintf(`INSERT INTO audit_log (user_id,action_type,action_category,table_name,record_id,old_data,new_data,ip_address,user_agent,request_url,request_method,created_at) VALUES %s`, 
+		strings.Join(placeholder, ","))
+	
+	_, err := db.Exec(query, values...)
+	if err != nil {
+		log.Printf("auditLog batch error: %v\n", err)
+	} else {
+		log.Printf("auditLog: flushed %d entries\n", len(batch))
+	}
+}
 
 type User struct {
 	ID int; Username string; RealName string; Email string; Status int
@@ -52,10 +118,14 @@ type Document struct {
 
 func initDB() error {
 	var err error
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&charset=utf8mb4&timeout=5s",
 		config.DBUser, config.DBPassword, config.DBHost, config.DBPort, config.DBName)
 	db, err = sql.Open("mysql", dsn)
 	if err != nil { return err }
+	// 配置连接池
+	db.SetMaxOpenConns(25)    // 最大打开连接数
+	db.SetMaxIdleConns(10)    // 最大空闲连接数
+	db.SetConnMaxLifetime(5 * time.Minute) // 连接最大生命周期
 	return db.Ping()
 }
 
@@ -79,11 +149,11 @@ func clearSession(w http.ResponseWriter) {
 }
 
 func auditLog(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+	// 直接写入数据库（简单可靠）
 	if db == nil { 
 		log.Println("auditLog: db is nil")
 		return 
 	}
-	// MySQL JSON 字段不能是空字符串，需要转为 NULL
 	var oldData, newData interface{}
 	if old == "" { oldData = nil } else { oldData = old }
 	if nw == "" { newData = nil } else { newData = nw }
@@ -92,8 +162,6 @@ func auditLog(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url,
 		uid,atype,acat,tbl,rid,oldData,newData,ip,ua,url,meth)
 	if err != nil {
 		log.Printf("auditLog error: %v\n", err)
-	} else {
-		log.Printf("auditLog: user=%d action=%s category=%s table=%s\n", uid, atype, acat, tbl)
 	}
 }
 
@@ -131,13 +199,13 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	var tp,ap,td,tu int
-	db.QueryRow("SELECT COUNT(*) FROM project").Scan(&tp)
+	db.QueryRow("SELECT COUNT(*) FROM project WHERE status != 4").Scan(&tp)
 	db.QueryRow("SELECT COUNT(*) FROM project WHERE status IN(1,2)").Scan(&ap)
 	db.QueryRow("SELECT COUNT(*) FROM document WHERE status=1").Scan(&td)
 	db.QueryRow("SELECT COUNT(*) FROM user WHERE status=1").Scan(&tu)
 	stats := map[string]int{"TotalProjects":tp,"ActiveProjects":ap,"TotalDocuments":td,"TotalUsers":tu}
 	var ps []Project
-	rows,_ := db.Query("SELECT id,name,code,status,progress,created_at FROM project ORDER BY created_at DESC LIMIT 5")
+	rows,_ := db.Query("SELECT id,name,code,status,progress,created_at FROM project WHERE status != 4 ORDER BY created_at DESC LIMIT 5")
 	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.CreatedAt); ps=append(ps,p) }
 	rows.Close()
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/home.html"))
@@ -527,6 +595,8 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) { clearSession(w); ht
 func main() {
 	if err := initDB(); err != nil { log.Fatalf("DB error:%v",err) }
 	log.Printf("Database connected")
+	initAuditLogWorker()
+	log.Printf("Audit log worker started")
 	os.MkdirAll(config.UploadDir,0755)
 	http.Handle("/static/",http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))
 	http.HandleFunc("/login",loginHandler)
