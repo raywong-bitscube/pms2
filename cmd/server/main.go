@@ -103,9 +103,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		t.Execute(w, nil)
 		return
 	}
-	var req struct{ Username, Password string }
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无效请求"})
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名和密码不能为空"})
 		return
 	}
 	var u User; var hash string
@@ -158,7 +165,14 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 
 func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 	if r.Method == "POST" {
-		var req struct{Name,Code,StartDate,EndDate,Description string; TemplateID int}
+		var req struct {
+			Name        string `json:"name"`
+			Code        string `json:"code"`
+			StartDate   string `json:"start_date"`
+			EndDate     string `json:"end_date"`
+			Description string `json:"description"`
+			TemplateID  int    `json:"template_id"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"解析失败"})
 			return
@@ -188,8 +202,19 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"id":pid})
 		
 	} else if r.Method == "PUT" {
-		var req struct{ID,Status,Progress int;Name,Code,Description string}
+		var req struct {
+			ID          int    `json:"id"`
+			Status      int    `json:"status"`
+			Progress    int    `json:"progress"`
+			Name        string `json:"name"`
+			Code        string `json:"code"`
+			Description string `json:"description"`
+		}
 		json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 id"})
+			return
+		}
 		// 查询旧数据
 		var oldName, oldCode, oldDesc string
 		var oldStatus, oldProgress int
@@ -204,8 +229,14 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else if r.Method == "DELETE" {
-		var req struct{ID int}
+		var req struct {
+			ID int `json:"id"`
+		}
 		json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 id"})
+			return
+		}
 		// 查询旧数据
 		var oldName, oldCode, oldDesc string
 		var oldStatus int
@@ -240,8 +271,16 @@ func projectDetailHandler(w http.ResponseWriter, r *http.Request) {
 func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Error(w,"Unauthorized",401); return }
-	var req struct{StageID,Status,Progress int}
+	var req struct {
+		StageID  int `json:"stage_id"`
+		Status   int `json:"status"`
+		Progress int `json:"progress"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
+	if req.StageID == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 stage_id"})
+		return
+	}
 	db.Exec(`UPDATE project_stage SET status=?,progress=?,updated_at=NOW() WHERE id=?`,req.Status,req.Progress,req.StageID)
 	auditLog(u.ID,"update","project_stage","project_stage",int64(req.StageID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
@@ -287,11 +326,21 @@ func stageAPI(w http.ResponseWriter, r *http.Request) {
 	
 	if r.Method == "PUT" {
 		var req struct {
-			ID, OrderNum, Status, Progress int
-			Name, Code, PlanStartDate, PlanEndDate string
+			ID            int    `json:"id"`
+			OrderNum      int    `json:"order_num"`
+			Status        int    `json:"status"`
+			Progress      int    `json:"progress"`
+			Name          string `json:"name"`
+			Code          string `json:"code"`
+			PlanStartDate string `json:"plan_start_date"`
+			PlanEndDate   string `json:"plan_end_date"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"解析失败"})
+			return
+		}
+		if req.ID == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 id"})
 			return
 		}
 		_, err := db.Exec(`UPDATE project_stage SET name=?,code=?,order_num=?,status=?,progress=?,plan_start_date=?,plan_end_date=?,updated_at=NOW() WHERE id=?`,
@@ -334,8 +383,14 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			auditLog(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		} else if r.Method == "DELETE" {
-			var req struct{ID int}
+			var req struct {
+				ID int `json:"id"`
+			}
 			json.NewDecoder(r.Body).Decode(&req)
+			if req.ID == 0 {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 id"})
+				return
+			}
 			// 查询删除前的文档数据
 			var docProjectID, docStageID, docFileSize, docStatus, docUploadedBy int
 			var docName, docType, docFileName, docFilePath, docVersion string
@@ -365,8 +420,17 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/users/api" && r.Method == "POST" {
-		var req struct{Username,Password,RealName,Email string}
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			RealName string `json:"real_name"`
+			Email    string `json:"email"`
+		}
 		json.NewDecoder(r.Body).Decode(&req)
+		if req.Username == "" || req.Password == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名和密码不能为空"})
+			return
+		}
 		h,_ := bcrypt.GenerateFromPassword([]byte(req.Password),12)
 		db.Exec(`INSERT INTO user(username,password_hash,real_name,email,status,created_at)VALUES(?,?,?,?,1,NOW())`,req.Username,string(h),req.RealName,req.Email)
 		auditLog(u.ID,"create","user","user",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
