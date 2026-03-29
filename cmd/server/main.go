@@ -79,9 +79,22 @@ func clearSession(w http.ResponseWriter) {
 }
 
 func auditLog(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
-	if db == nil { return }
-	db.Exec(`INSERT INTO audit_log (user_id,action_type,action_category,table_name,record_id,old_data,new_data,ip_address,user_agent,request_url,request_method,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-		uid,atype,acat,tbl,rid,old,nw,ip,ua,url,meth)
+	if db == nil { 
+		log.Println("auditLog: db is nil")
+		return 
+	}
+	// MySQL JSON 字段不能是空字符串，需要转为 NULL
+	var oldData, newData interface{}
+	if old == "" { oldData = nil } else { oldData = old }
+	if nw == "" { newData = nil } else { newData = nw }
+	
+	_, err := db.Exec(`INSERT INTO audit_log (user_id,action_type,action_category,table_name,record_id,old_data,new_data,ip_address,user_agent,request_url,request_method,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		uid,atype,acat,tbl,rid,oldData,newData,ip,ua,url,meth)
+	if err != nil {
+		log.Printf("auditLog error: %v\n", err)
+	} else {
+		log.Printf("auditLog: user=%d action=%s category=%s table=%s\n", uid, atype, acat, tbl)
+	}
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -177,16 +190,31 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 	} else if r.Method == "PUT" {
 		var req struct{ID,Status,Progress int;Name,Code,Description string}
 		json.NewDecoder(r.Body).Decode(&req)
+		// 查询旧数据
+		var oldName, oldCode, oldDesc string
+		var oldStatus, oldProgress int
+		db.QueryRow("SELECT name,code,status,progress,description FROM project WHERE id=?",req.ID).
+			Scan(&oldName,&oldCode,&oldStatus,&oldProgress,&oldDesc)
+		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"progress":%d,"description":"%s"}`,
+			req.ID,oldName,oldCode,oldStatus,oldProgress,oldDesc)
+		// 更新
 		db.Exec(`UPDATE project SET name=?,code=?,status=?,progress=?,description=?,updated_at=NOW() WHERE id=?`,
 			req.Name,req.Code,req.Status,req.Progress,req.Description,req.ID)
-		auditLog(u.ID,"update","project","project",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		auditLog(u.ID,"update","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else if r.Method == "DELETE" {
 		var req struct{ID int}
 		json.NewDecoder(r.Body).Decode(&req)
+		// 查询旧数据
+		var oldName, oldCode, oldDesc string
+		var oldStatus int
+		db.QueryRow("SELECT name,code,status,description FROM project WHERE id=?",req.ID).
+			Scan(&oldName,&oldCode,&oldStatus,&oldDesc)
+		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"description":"%s"}`,
+			req.ID,oldName,oldCode,oldStatus,oldDesc)
 		db.Exec("UPDATE project SET status=4 WHERE id=?",req.ID)
-		auditLog(u.ID,"delete","project","project",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		auditLog(u.ID,"delete","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else {
@@ -308,8 +336,19 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 		} else if r.Method == "DELETE" {
 			var req struct{ID int}
 			json.NewDecoder(r.Body).Decode(&req)
+			// 查询删除前的文档数据
+			var docProjectID, docStageID, docFileSize, docStatus, docUploadedBy int
+			var docName, docType, docFileName, docFilePath, docVersion string
+			err := db.QueryRow(`SELECT project_id,stage_id,name,type,file_path,file_name,file_size,version,status,uploaded_by FROM document WHERE id=?`, req.ID).
+				Scan(&docProjectID,&docStageID,&docName,&docType,&docFilePath,&docFileName,&docFileSize,&docVersion,&docStatus,&docUploadedBy)
+			if err == nil {
+				oldJSON := fmt.Sprintf(`{"id":%d,"project_id":%d,"stage_id":%d,"name":"%s","type":"%s","file_name":"%s","file_path":"%s","file_size":%d,"version":"%s","status":%d}`,
+					req.ID,docProjectID,docStageID,docName,docType,docFileName,docFilePath,docFileSize,docVersion,docStatus)
+				auditLog(u.ID,"delete","document","document",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			} else {
+				auditLog(u.ID,"delete","document","document",int64(req.ID),"",fmt.Sprintf("query error:%v",err),r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			}
 			db.Exec("UPDATE document SET status=0 WHERE id=?",req.ID)
-			auditLog(u.ID,"delete","document","document",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		}
 		return
@@ -346,10 +385,27 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 func auditLogsHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
-	type L struct{ID,RecordID int64;Username,ActionType,ActionCategory,TableName,IPAddress,CreatedAt string}
+	type L struct {
+		ID, RecordID   int64
+		Username       string
+		ActionType     string
+		ActionCategory string
+		TableName      string
+		IPAddress      string
+		UserAgent      string
+		RequestURL     string
+		RequestMethod  string
+		OldData        string
+		NewData        string
+		CreatedAt      string
+	}
 	var ls []L
-	rows,_ := db.Query(`SELECT al.id,u.username,al.action_type,al.action_category,al.table_name,al.record_id,al.ip_address,DATE_FORMAT(al.created_at,'%Y-%m-%d %H:%i:%s') FROM audit_log al LEFT JOIN user u ON al.user_id=u.id ORDER BY al.created_at DESC LIMIT 100`)
-	for rows.Next() { var x L; rows.Scan(&x.ID,&x.Username,&x.ActionType,&x.ActionCategory,&x.TableName,&x.RecordID,&x.IPAddress,&x.CreatedAt); ls=append(ls,x) }
+	rows,_ := db.Query(`SELECT al.id,u.username,al.action_type,al.action_category,al.table_name,al.record_id,al.ip_address,al.user_agent,al.request_url,al.request_method,IFNULL(al.old_data,''),IFNULL(al.new_data,''),DATE_FORMAT(al.created_at,'%Y-%m-%d %H:%i:%s') FROM audit_log al LEFT JOIN user u ON al.user_id=u.id ORDER BY al.created_at DESC LIMIT 100`)
+	for rows.Next() {
+		var x L
+		rows.Scan(&x.ID,&x.Username,&x.ActionType,&x.ActionCategory,&x.TableName,&x.RecordID,&x.IPAddress,&x.UserAgent,&x.RequestURL,&x.RequestMethod,&x.OldData,&x.NewData,&x.CreatedAt)
+		ls=append(ls,x)
+	}
 	rows.Close()
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/audit_logs.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"审计日志","CurrentUser":u,"Logs":ls})

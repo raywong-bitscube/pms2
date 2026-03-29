@@ -129,7 +129,27 @@ textarea.form-control{resize:vertical}
 <script>
 function ep(btn){var d=btn.dataset;document.getElementById('epi').value=d.id;document.getElementById('epn').value=d.name;document.getElementById('epc').value=d.code;document.getElementById('eps').value=d.status;document.getElementById('epp').value=d.progress;document.getElementById('epm').style.display='flex'}
 function cm(id){document.getElementById(id).style.display='none'}
-async function spd(){var d={id:parseInt(document.getElementById('epi').value),name:document.getElementById('epn').value,code:document.getElementById('epc').value,status:parseInt(document.getElementById('eps').value),progress:parseInt(document.getElementById('epp').value),description:document.getElementById('epd').value};var r=await fetch('/projects/api',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var res=await r.json();if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}}
+async function spd(){
+    var id=parseInt(document.getElementById('epi').value);
+    var name=document.getElementById('epn').value;
+    var code=document.getElementById('epc').value;
+    var status=parseInt(document.getElementById('eps').value);
+    var progressVal=document.getElementById('epp').value;
+    var progress=progressVal===''?0:parseInt(progressVal);
+    if(isNaN(progress)||progress<0||progress>100){alert('进度必须是 0-100 的数字');return}
+    var description=document.getElementById('epd').value;
+    var d={id:id,name:name,code:code,status:status,progress:progress,description:description};
+    console.log('发送数据:',d);
+    try{
+        var r=await fetch('/projects/api',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+        var res=await r.json();
+        console.log('返回结果:',res);
+        if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){
+        console.error('错误:',e);
+        alert('保存失败：'+e.message);
+    }
+}
 function us(sid){document.getElementById('usi').value=sid;document.getElementById('um').style.display='flex'}
 async function sv(){var id=document.getElementById('usi').value;var p=document.getElementById('upv').value;var r=await fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(id),status:2,progress:parseInt(p)})});var res=await r.json();if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}}
 function ss(sid,st){fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(sid),status:st,progress:st==3?100:0})}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}})}

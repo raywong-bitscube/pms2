@@ -17,6 +17,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .header-left .breadcrumb { font-size: 16px; font-weight: 500; }
 .menu-toggle { display: none; font-size: 24px; cursor: pointer; color: #333; background: none; border: none; padding: 8px; }
 .header-right { display: flex; align-items: center; gap: 16px; }
+.header-icon { display: flex; align-items: center; justify-content: center; color: #666; cursor: pointer; padding: 8px; border-radius: 4px; transition: all 0.2s; }
+.header-icon:hover { color: #1890ff; background: #f0f5ff; }
 .user-info { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .user-avatar { width: 32px; height: 32px; border-radius: 50%; background: #1890ff; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
 
