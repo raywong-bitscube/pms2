@@ -223,9 +223,16 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"progress":%d,"description":"%s"}`,
 			req.ID,oldName,oldCode,oldStatus,oldProgress,oldDesc)
 		// 更新
-		db.Exec(`UPDATE project SET name=?,code=?,status=?,progress=?,description=?,updated_at=NOW() WHERE id=?`,
+		_, err := db.Exec(`UPDATE project SET name=?,code=?,status=?,progress=?,description=?,updated_at=NOW() WHERE id=?`,
 			req.Name,req.Code,req.Status,req.Progress,req.Description,req.ID)
-		auditLog(u.ID,"update","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
+			return
+		}
+		// 异步写入审计日志（不阻塞主请求）
+		go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+			auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+		}(u.ID,"update","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else if r.Method == "DELETE" {
@@ -244,8 +251,15 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 			Scan(&oldName,&oldCode,&oldStatus,&oldDesc)
 		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"description":"%s"}`,
 			req.ID,oldName,oldCode,oldStatus,oldDesc)
-		db.Exec("UPDATE project SET status=4 WHERE id=?",req.ID)
-		auditLog(u.ID,"delete","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		_, err := db.Exec("UPDATE project SET status=4 WHERE id=?",req.ID)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
+			return
+		}
+		// 异步写入审计日志
+		go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+			auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+		}(u.ID,"delete","project","project",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else {
@@ -281,8 +295,15 @@ func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"缺少 stage_id"})
 		return
 	}
-	db.Exec(`UPDATE project_stage SET status=?,progress=?,updated_at=NOW() WHERE id=?`,req.Status,req.Progress,req.StageID)
-	auditLog(u.ID,"update","project_stage","project_stage",int64(req.StageID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+	_, err := db.Exec(`UPDATE project_stage SET status=?,progress=?,updated_at=NOW() WHERE id=?`,req.Status,req.Progress,req.StageID)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
+		return
+	}
+	// 异步写入审计日志
+	go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+		auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+	}(u.ID,"update","project_stage","project_stage",int64(req.StageID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 }
 
@@ -349,7 +370,10 @@ func stageAPI(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
 			return
 		}
-		auditLog(u.ID,"update","project_stage","project_stage",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+		// 异步写入审计日志
+		go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+			auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+		}(u.ID,"update","project_stage","project_stage",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 	} else {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"Method not allowed"})
@@ -380,7 +404,10 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 				db.Exec(`INSERT INTO document(project_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,1,?,NOW())`,
 					pid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
 			}
-			auditLog(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			// 异步写入审计日志
+			go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+				auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+			}(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		} else if r.Method == "DELETE" {
 			var req struct {
@@ -396,14 +423,22 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			var docName, docType, docFileName, docFilePath, docVersion string
 			err := db.QueryRow(`SELECT project_id,stage_id,name,type,file_path,file_name,file_size,version,status,uploaded_by FROM document WHERE id=?`, req.ID).
 				Scan(&docProjectID,&docStageID,&docName,&docType,&docFilePath,&docFileName,&docFileSize,&docVersion,&docStatus,&docUploadedBy)
+			var oldJSON string
 			if err == nil {
-				oldJSON := fmt.Sprintf(`{"id":%d,"project_id":%d,"stage_id":%d,"name":"%s","type":"%s","file_name":"%s","file_path":"%s","file_size":%d,"version":"%s","status":%d}`,
+				oldJSON = fmt.Sprintf(`{"id":%d,"project_id":%d,"stage_id":%d,"name":"%s","type":"%s","file_name":"%s","file_path":"%s","file_size":%d,"version":"%s","status":%d}`,
 					req.ID,docProjectID,docStageID,docName,docType,docFileName,docFilePath,docFileSize,docVersion,docStatus)
-				auditLog(u.ID,"delete","document","document",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
-				auditLog(u.ID,"delete","document","document",int64(req.ID),"",fmt.Sprintf("query error:%v",err),r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+				oldJSON = fmt.Sprintf("query error:%v",err)
 			}
-			db.Exec("UPDATE document SET status=0 WHERE id=?",req.ID)
+			_, err = db.Exec("UPDATE document SET status=0 WHERE id=?",req.ID)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
+				return
+			}
+			// 异步写入审计日志
+			go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
+				auditLog(uid, atype, acat, tbl, rid, old, nw, ip, ua, url, meth)
+			}(u.ID,"delete","document","document",int64(req.ID),oldJSON,"",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		}
 		return
