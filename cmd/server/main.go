@@ -826,7 +826,15 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建角色，请联系管理员开通权限"})
 					return
 				}
-				db.Exec(`INSERT INTO role(name,code,description,status,created_at)VALUES(?,?,?,?,1,NOW())`,req.Name,req.Code,req.Description,req.Status)
+				// 列：name,code,description,status,created_at — 原 SQL VALUES(?,?,?,?,1,NOW()) 与列数不一致导致 INSERT 失败；db.Exec 错误被忽略仍返回 success
+				st := 2 // 库：1=启用 2=归档；前端勾选=1 未勾选=0
+				if req.Status == 1 {
+					st = 1
+				}
+				if _, err := db.Exec(`INSERT INTO role(name,code,description,status,created_at) VALUES (?,?,?,?,?,NOW())`, req.Name, req.Code, req.Description, st); err != nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+					return
+				}
 				auditLog(u.ID,"create","role","role",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
 				// 编辑角色 - 检查权限
