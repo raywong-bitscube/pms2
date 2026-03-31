@@ -16,15 +16,15 @@
         <table class="table">
             <tr>
                 <td width="120">阶段名称</td>
-                <td><input type="text" id="stageName" class="form-control" value="{{.Stage.Name}}" required></td>
+                <td><input type="text" id="stageName" class="form-control" value="{{.Stage.Name}}" readonly style="background:#f5f5f5;"></td>
             </tr>
             <tr>
                 <td>阶段编码</td>
-                <td><input type="text" id="stageCode" class="form-control" value="{{.Stage.Code}}" required></td>
+                <td><input type="text" id="stageCode" class="form-control" value="{{.Stage.Code}}" readonly style="background:#f5f5f5;"></td>
             </tr>
             <tr>
                 <td>排序号</td>
-                <td><input type="number" id="orderNum" class="form-control" value="{{.Stage.OrderNum}}" min="0"></td>
+                <td><input type="number" id="orderNum" class="form-control" value="{{.Stage.OrderNum}}" min="0" readonly style="background:#f5f5f5;"></td>
             </tr>
             <tr>
                 <td>状态</td>

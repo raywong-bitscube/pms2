@@ -1,0 +1,199 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div><h1 class="page-title">角色管理</h1></div>
+    <button class="btn btn-primary" onclick="showRoleModal()">+ 新建角色</button>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead><tr><th>角色名称</th><th>角色标识</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+            {{range .Roles}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td><code>{{.Code}}</code></td>
+                <td>{{.Description}}</td>
+                <td>{{if eq .Status 1}}<span class="tag tag-success">启用</span>{{else}}<span class="tag">禁用</span>{{end}}</td>
+                <td>
+                    <button class="btn btn-sm btn-default" onclick="editRole({{.ID}},'{{.Name}}','{{.Code}}','{{.Description}}',{{.Status}})">编辑</button>
+                    <button class="btn btn-sm btn-default" onclick="manageMenu({{.ID}},'{{.Name}}')">菜单权限</button>
+                    <button class="btn btn-sm btn-default" onclick="manageFunc({{.ID}},'{{.Name}}')">功能权限</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteRole({{.ID}})">删除</button>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<!-- 角色模态框 -->
+<div id="roleModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="modalTitle">新建角色</h3><span class="close" onclick="closeModal('roleModal')">&times;</span></div>
+        <div class="modal-body">
+            <input type="hidden" id="roleId">
+            <div class="form-group"><label>角色名称</label><input type="text" id="roleName" class="form-control"></div>
+            <div class="form-group"><label>角色标识</label><input type="text" id="roleCode" class="form-control" placeholder="如：project_manager"></div>
+            <div class="form-group"><label>描述</label><textarea id="roleDesc" class="form-control" rows="2"></textarea></div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="roleStatus" style="width:18px;height:18px;" checked>
+                <label for="roleStatus" style="margin:0;cursor:pointer;">启用</label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeModal('roleModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveRole()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 菜单权限模态框 -->
+<div id="menuPermModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="menuPermTitle">菜单权限</h3><span class="close" onclick="closeModal('menuPermModal')">&times;</span></div>
+        <div class="modal-body" id="menuPermBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeModal('menuPermModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveMenuPerm()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 功能权限模态框 -->
+<div id="funcPermModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="funcPermTitle">功能权限</h3><span class="close" onclick="closeModal('funcPermModal')">&times;</span></div>
+        <div class="modal-body" id="funcPermBody"></div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeModal('funcPermModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveFuncPerm()">保存</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-content{background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee}
+.modal-header h3{margin:0;font-size:18px}
+.modal-body{padding:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #eee}
+.close{cursor:pointer;font-size:24px;color:#999}
+.close:hover{color:#333}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-weight:500}
+.form-control{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box}
+.form-control:focus{outline:none;border-color:#1890ff}
+code{background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:12px;}
+.perm-item{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:4px;}
+.perm-item label{margin:0;cursor:pointer;}
+</style>
+<script>
+function closeModal(id){document.getElementById(id).style.display='none'}
+let currentRoleId=0;
+
+function showRoleModal(){
+    document.getElementById('modalTitle').textContent='新建角色';
+    document.getElementById('roleId').value='';
+    document.getElementById('roleName').value='';
+    document.getElementById('roleCode').value='';
+    document.getElementById('roleDesc').value='';
+    document.getElementById('roleStatus').checked=true;
+    document.getElementById('roleModal').style.display='flex';
+}
+function editRole(id,name,code,desc,status){
+    document.getElementById('modalTitle').textContent='编辑角色';
+    document.getElementById('roleId').value=id;
+    document.getElementById('roleName').value=name;
+    document.getElementById('roleCode').value=code;
+    document.getElementById('roleDesc').value=desc;
+    document.getElementById('roleStatus').checked=(status==1);
+    document.getElementById('roleModal').style.display='flex';
+}
+async function saveRole(){
+    var id=document.getElementById('roleId').value;
+    var name=document.getElementById('roleName').value;
+    var code=document.getElementById('roleCode').value;
+    var desc=document.getElementById('roleDesc').value;
+    var status=document.getElementById('roleStatus').checked?1:0;
+    
+    if(name==''||code==''){alert('角色名称和标识不能为空');return;}
+    
+    var data={name:name,code:code,description:desc,status:status};
+    if(id!=''){data.id=parseInt(id);}
+    
+    try{
+        var r=await fetch('/roles/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){alert('保存失败：'+e.message);}
+}
+async function deleteRole(id){
+    if(!confirm('确定要删除这个角色吗？'))return;
+    try{
+        var r=await fetch('/roles/api',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('删除失败：'+res.message)}
+    }catch(e){alert('删除失败：'+e.message);}
+}
+async function manageMenu(id,name){
+    currentRoleId=id;
+    document.getElementById('menuPermTitle').textContent='菜单权限 - '+name;
+    try{
+        var r=await fetch('/roles/menu?role_id='+id);
+        var res=await r.json();
+        if(res.success){
+            var html='';
+            res.menus.forEach(function(m){
+                var checked=res.role_menus.includes(m.id)?'checked':'';
+                html+='<div class="perm-item"><input type="checkbox" id="menu_'+m.id+'" value="'+m.id+'" '+checked+'><label for="menu_'+m.id+'">'+m.icon+' '+m.name+'</label></div>';
+            });
+            document.getElementById('menuPermBody').innerHTML=html;
+            document.getElementById('menuPermModal').style.display='flex';
+        }
+    }catch(e){alert('加载失败：'+e.message);}
+}
+async function saveMenuPerm(){
+    var menuIds=[];
+    document.querySelectorAll('#menuPermBody input[type=checkbox]:checked').forEach(function(cb){menuIds.push(parseInt(cb.value));});
+    try{
+        var r=await fetch('/roles/menu',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role_id:currentRoleId,menu_ids:menuIds})});
+        var res=await r.json();
+        if(res.success){alert('保存成功');window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){alert('保存失败：'+e.message);}
+}
+async function manageFunc(id,name){
+    currentRoleId=id;
+    document.getElementById('funcPermTitle').textContent='功能权限 - '+name;
+    try{
+        var r=await fetch('/roles/function?role_id='+id);
+        var res=await r.json();
+        if(res.success){
+            var html='';
+            var currentMenu='';
+            res.functions.forEach(function(f){
+                if(f.menu_name!=currentMenu){
+                    if(currentMenu!='')html+='</div>';
+                    html+='<div style="margin-top:10px;"><strong>'+f.menu_icon+' '+f.menu_name+'</strong></div><div>';
+                    currentMenu=f.menu_name;
+                }
+                var checked=res.role_funcs.includes(f.id)?'checked':'';
+                html+='<div class="perm-item" style="margin-left:20px;"><input type="checkbox" id="func_'+f.id+'" value="'+f.id+'" '+checked+'><label for="func_'+f.id+'">'+f.name+' ('+f.code+')</label></div>';
+            });
+            if(currentMenu!='')html+='</div>';
+            document.getElementById('funcPermBody').innerHTML=html;
+            document.getElementById('funcPermModal').style.display='flex';
+        }
+    }catch(e){alert('加载失败：'+e.message);}
+}
+async function saveFuncPerm(){
+    var funcIds=[];
+    document.querySelectorAll('#funcPermBody input[type=checkbox]:checked').forEach(function(cb){funcIds.push(parseInt(cb.value));});
+    try{
+        var r=await fetch('/roles/function',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role_id:currentRoleId,function_ids:funcIds})});
+        var res=await r.json();
+        if(res.success){alert('保存成功');window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){alert('保存失败：'+e.message);}
+}
+</script>
+{{end}}

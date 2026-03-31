@@ -150,7 +150,7 @@ async function spd(){
         alert('保存失败：'+e.message);
     }
 }
-function us(sid){document.getElementById('usi').value=sid;document.getElementById('um').style.display='flex'}
+function us(sid){document.getElementById('usi').value=sid;document.getElementById('um').style.display='flex';document.getElementById('upv').focus()}
 async function sv(){var id=document.getElementById('usi').value;var p=document.getElementById('upv').value;var r=await fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(id),status:2,progress:parseInt(p)})});var res=await r.json();if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}}
 function ss(sid,st){fetch('/project/stages/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage_id:parseInt(sid),status:st,progress:st==3?100:0})}).then(function(r){return r.json()}).then(function(res){if(res.success){window.location.reload()}else{alert('更新失败：'+res.message)}})}
 function up(sid,pid){document.getElementById('upid').value=sid;document.getElementById('uppid').value=pid;document.getElementById('upm').style.display='flex'}

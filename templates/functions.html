@@ -1,0 +1,124 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div><h1 class="page-title">功能管理</h1></div>
+    <button class="btn btn-primary" onclick="showFunctionModal()">+ 新建功能</button>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead><tr><th>功能名称</th><th>功能标识</th><th>所属菜单</th><th>URL</th><th>方法</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+            {{range .Functions}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td><code>{{.Code}}</code></td>
+                <td>{{.MenuName}}</td>
+                <td>{{.Url}}</td>
+                <td><span class="tag">{{.Method}}</span></td>
+                <td>{{if eq .Status 1}}<span class="tag tag-success">启用</span>{{else}}<span class="tag">禁用</span>{{end}}</td>
+                <td>
+                    <button class="btn btn-sm btn-default" onclick="editFunction({{.ID}},'{{.Name}}','{{.Code}}',{{.MenuID}},'{{.Url}}','{{.Method}}','{{.Description}}',{{.Status}})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteFunction({{.ID}})">删除</button>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<!-- 功能模态框 -->
+<div id="functionModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="modalTitle">新建功能</h3><span class="close" onclick="closeModal('functionModal')">&times;</span></div>
+        <div class="modal-body">
+            <input type="hidden" id="functionId">
+            <div class="form-group"><label>功能名称</label><input type="text" id="functionName" class="form-control"></div>
+            <div class="form-group"><label>功能标识</label><input type="text" id="functionCode" class="form-control" placeholder="如：project:create"></div>
+            <div class="form-group"><label>所属菜单</label><select id="functionMenu" class="form-control">{{range .MenuList}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></div>
+            <div class="form-group"><label>URL</label><input type="text" id="functionUrl" class="form-control" placeholder="如：/projects/api"></div>
+            <div class="form-group"><label>HTTP 方法</label><select id="functionMethod" class="form-control"><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option></select></div>
+            <div class="form-group"><label>描述</label><textarea id="functionDesc" class="form-control" rows="2"></textarea></div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="functionStatus" style="width:18px;height:18px;" checked>
+                <label for="functionStatus" style="margin:0;cursor:pointer;">启用</label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeModal('functionModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveFunction()">保存</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-content{background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee}
+.modal-header h3{margin:0;font-size:18px}
+.modal-body{padding:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #eee}
+.close{cursor:pointer;font-size:24px;color:#999}
+.close:hover{color:#333}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-weight:500}
+.form-control{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box}
+.form-control:focus{outline:none;border-color:#1890ff}
+code{background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:12px;}
+</style>
+<script>
+function closeModal(id){document.getElementById(id).style.display='none'}
+function showFunctionModal(){
+    document.getElementById('modalTitle').textContent='新建功能';
+    document.getElementById('functionId').value='';
+    document.getElementById('functionName').value='';
+    document.getElementById('functionCode').value='';
+    document.getElementById('functionMenu').value='1';
+    document.getElementById('functionUrl').value='';
+    document.getElementById('functionMethod').value='GET';
+    document.getElementById('functionDesc').value='';
+    document.getElementById('functionStatus').checked=true;
+    document.getElementById('functionModal').style.display='flex';
+}
+function editFunction(id,name,code,menu,url,method,desc,status){
+    document.getElementById('modalTitle').textContent='编辑功能';
+    document.getElementById('functionId').value=id;
+    document.getElementById('functionName').value=name;
+    document.getElementById('functionCode').value=code;
+    document.getElementById('functionMenu').value=menu;
+    document.getElementById('functionUrl').value=url;
+    document.getElementById('functionMethod').value=method;
+    document.getElementById('functionDesc').value=desc;
+    document.getElementById('functionStatus').checked=(status==1);
+    document.getElementById('functionModal').style.display='flex';
+}
+async function saveFunction(){
+    var id=document.getElementById('functionId').value;
+    var name=document.getElementById('functionName').value;
+    var code=document.getElementById('functionCode').value;
+    var menu=parseInt(document.getElementById('functionMenu').value);
+    var url=document.getElementById('functionUrl').value;
+    var method=document.getElementById('functionMethod').value;
+    var desc=document.getElementById('functionDesc').value;
+    var status=document.getElementById('functionStatus').checked?1:0;
+    
+    if(name==''||code==''){alert('功能名称和标识不能为空');return;}
+    
+    var data={name:name,code:code,menu_id:menu,url:url,method:method,description:desc,status:status};
+    if(id!=''){data.id=parseInt(id);}
+    
+    try{
+        var r=await fetch('/functions/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){alert('保存失败：'+e.message);}
+}
+async function deleteFunction(id){
+    if(!confirm('确定要删除这个功能吗？'))return;
+    try{
+        var r=await fetch('/functions/api',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('删除失败：'+res.message)}
+    }catch(e){alert('删除失败：'+e.message);}
+}
+</script>
+{{end}}

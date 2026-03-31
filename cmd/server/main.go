@@ -96,7 +96,7 @@ func flushAuditLogs(batch []auditLogEntry) {
 }
 
 type User struct {
-	ID int; Username string; RealName string; Email string; Status int
+	ID int; Username string; RealName string; Email string; Status int; IsAdmin int
 }
 
 type Project struct {
@@ -184,8 +184,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var u User; var hash string
-	err := db.QueryRow("SELECT id,username,password_hash,real_name,email,status FROM user WHERE username=?", req.Username).
-		Scan(&u.ID, &u.Username, &hash, &u.RealName, &u.Email, &u.Status)
+	err := db.QueryRow("SELECT id,username,password_hash,real_name,email,is_admin,status FROM user WHERE username=?", req.Username).
+		Scan(&u.ID, &u.Username, &hash, &u.RealName, &u.Email, &u.IsAdmin, &u.Status)
 	if err != nil || u.Status != 1 || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名或密码错误"})
 		return
@@ -208,8 +208,9 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	rows,_ := db.Query("SELECT id,name,code,status,progress,created_at FROM project WHERE status != 4 ORDER BY created_at DESC LIMIT 5")
 	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.CreatedAt); ps=append(ps,p) }
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/home.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"首页","CurrentUser":u,"Stats":stats,"RecentProjects":ps})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"首页","CurrentUser":u,"Stats":stats,"RecentProjects":ps,"Menus":menus,"CurrentUrl":"/"})
 }
 
 func projectsHandler(w http.ResponseWriter, r *http.Request) {
@@ -227,12 +228,17 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 	rows,_ := db.Query(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description,p.created_at FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.status != 4 ORDER BY p.created_at DESC`)
 	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description,&p.CreatedAt); ps=append(ps,p) }
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/projects.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目管理","CurrentUser":u,"Projects":ps})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目管理","CurrentUser":u,"Projects":ps,"Menus":menus,"CurrentUrl":"/projects"})
 }
 
 func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 	if r.Method == "POST" {
+		if !hasFunctionPermission(u, "project:create") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建项目，请联系管理员开通权限"})
+			return
+		}
 		var req struct {
 			Name        string `json:"name"`
 			Code        string `json:"code"`
@@ -270,6 +276,10 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"id":pid})
 		
 	} else if r.Method == "PUT" {
+		if !hasFunctionPermission(u, "project:edit") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑项目，请联系管理员开通权限"})
+			return
+		}
 		var req struct {
 			ID          int    `json:"id"`
 			Status      int    `json:"status"`
@@ -304,6 +314,10 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		
 	} else if r.Method == "DELETE" {
+		if !hasFunctionPermission(u, "project:delete") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除项目，请联系管理员开通权限"})
+			return
+		}
 		var req struct {
 			ID int `json:"id"`
 		}
@@ -346,8 +360,9 @@ func projectDetailHandler(w http.ResponseWriter, r *http.Request) {
 	rows,_ := db.Query("SELECT id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE project_id=? ORDER BY order_num",id)
 	for rows.Next() { var s ProjectStage; rows.Scan(&s.ID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate); ss=append(ss,s) }
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/project_detail.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目详情","CurrentUser":u,"Project":p,"Stages":ss})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目详情","CurrentUser":u,"Project":p,"Stages":ss,"Menus":menus,"CurrentUrl":"/projects"})
 }
 
 func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +399,9 @@ func stageDetailHandler(w http.ResponseWriter, r *http.Request) {
 	var s ProjectStage
 	db.QueryRow("SELECT id,project_id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE id=?",id).
 		Scan(&s.ID,&s.ProjectID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate)
+	// 格式化日期为 YYYY-MM-DD (input type="date" 需要的格式)
+	if len(s.PlanStartDate) > 10 { s.PlanStartDate = s.PlanStartDate[:10] }
+	if len(s.PlanEndDate) > 10 { s.PlanEndDate = s.PlanEndDate[:10] }
 	
 	// 获取项目信息
 	var p Project
@@ -405,8 +423,9 @@ func stageDetailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/stage_detail.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"阶段详情","CurrentUser":u,"Stage":s,"Project":p,"Documents":ds})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"阶段详情","CurrentUser":u,"Stage":s,"Project":p,"Documents":ds,"Menus":menus,"CurrentUrl":"/projects"})
 }
 
 func stageAPI(w http.ResponseWriter, r *http.Request) {
@@ -515,38 +534,100 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 	rows,_ := db.Query(`SELECT d.id,d.project_id,p.name,d.stage_id,IFNULL(s.name,'-'),d.name,d.type,d.file_name,d.file_size,d.version,d.status,d.uploaded_by,IFNULL(u.real_name,u.username),d.created_at FROM document d LEFT JOIN project p ON d.project_id=p.id LEFT JOIN project_stage s ON d.stage_id=s.id LEFT JOIN user u ON d.uploaded_by=u.id WHERE d.status=1 ORDER BY d.created_at DESC`)
 	for rows.Next() { var d Document; rows.Scan(&d.ID,&d.ProjectID,&d.ProjectName,&d.StageID,&d.StageName,&d.Name,&d.Type,&d.FileName,&d.FileSize,&d.Version,&d.Status,&d.UploadedBy,&d.UploadedByName,&d.CreatedAt); ds=append(ds,d) }
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/documents.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"文档管理","CurrentUser":u,"Documents":ds})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"文档管理","CurrentUser":u,"Documents":ds,"Menus":menus,"CurrentUrl":"/documents"})
 }
 
 func usersHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
-	if r.URL.Path == "/users/api" && r.Method == "POST" {
-		var req struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-			RealName string `json:"real_name"`
-			Email    string `json:"email"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-		if req.Username == "" || req.Password == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名和密码不能为空"})
+	if r.URL.Path == "/users/api" {
+		if r.Method == "POST" {
+			var req struct {
+				ID       int    `json:"id"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+				RealName string `json:"real_name"`
+				Email    string `json:"email"`
+				IsAdmin  int    `json:"is_admin"`
+				Status   int    `json:"status"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Username == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名不能为空"})
+				return
+			}
+			if req.ID == 0 {
+				// 新建用户
+				if !hasFunctionPermission(u, "user:create") {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建用户，请联系管理员开通权限"})
+					return
+				}
+				if req.Password == "" {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"密码不能为空"})
+					return
+				}
+				h,_ := bcrypt.GenerateFromPassword([]byte(req.Password),12)
+				db.Exec(`INSERT INTO user(username,password_hash,real_name,email,is_admin,status,created_at)VALUES(?,?,?,?,?,?,NOW())`,req.Username,string(h),req.RealName,req.Email,req.IsAdmin,req.Status)
+				auditLog(u.ID,"create","user","user",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			} else {
+				// 编辑用户
+				if !hasFunctionPermission(u, "user:edit") {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑用户，请联系管理员开通权限"})
+					return
+				}
+				if req.Password != "" {
+					h,_ := bcrypt.GenerateFromPassword([]byte(req.Password),12)
+					db.Exec(`UPDATE user SET username=?,password_hash=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,string(h),req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
+				} else {
+					db.Exec(`UPDATE user SET username=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
+				}
+				auditLog(u.ID,"update","user","user",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 			return
 		}
-		h,_ := bcrypt.GenerateFromPassword([]byte(req.Password),12)
-		db.Exec(`INSERT INTO user(username,password_hash,real_name,email,status,created_at)VALUES(?,?,?,?,1,NOW())`,req.Username,string(h),req.RealName,req.Email)
-		auditLog(u.ID,"create","user","user",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
-		return
+		if r.Method == "GET" {
+			// 获取用户角色
+			userID := r.URL.Query().Get("user_id")
+			type Role struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+				Code string `json:"code"`
+			}
+			var roles []Role
+			rows,_ := db.Query(`SELECT id,name,code FROM role WHERE status=1 ORDER BY id`)
+			for rows.Next() { var x Role; rows.Scan(&x.ID,&x.Name,&x.Code); roles=append(roles,x) }
+			rows.Close()
+			userRoles := make([]int, 0)
+			rows2,_ := db.Query(`SELECT role_id FROM user_role WHERE user_id=?`,userID)
+			for rows2.Next() { var rid int; rows2.Scan(&rid); userRoles=append(userRoles,rid) }
+			rows2.Close()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"roles":roles,"user_roles":userRoles})
+			return
+		}
+		if r.Method == "PUT" {
+			// 保存用户角色
+			var req struct{ UserID int `json:"user_id"`; RoleIDs []int `json:"role_ids"` }
+			json.NewDecoder(r.Body).Decode(&req)
+			db.Exec(`DELETE FROM user_role WHERE user_id=?`,req.UserID)
+			for _, rid := range req.RoleIDs {
+				db.Exec(`INSERT INTO user_role(user_id,role_id)VALUES(?,?)`,req.UserID,rid)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
 	}
-	type U struct{ID,Status int;Username,RealName,Email string;CreatedAt string}
+	type U struct{ID,Status,IsAdmin int;Username,RealName,Email string;CreatedAt string}
 	var us []U
-	rows,_ := db.Query("SELECT id,username,real_name,email,status,DATE_FORMAT(created_at,'%Y-%m-%d') FROM user ORDER BY created_at DESC")
-	for rows.Next() { var x U; rows.Scan(&x.ID,&x.Username,&x.RealName,&x.Email,&x.Status,&x.CreatedAt); us=append(us,x) }
+	rows,_ := db.Query("SELECT id,username,real_name,email,is_admin,status,DATE_FORMAT(created_at,'%Y-%m-%d') FROM user ORDER BY created_at DESC")
+	for rows.Next() { var x U; rows.Scan(&x.ID,&x.Username,&x.RealName,&x.Email,&x.IsAdmin,&x.Status,&x.CreatedAt); us=append(us,x) }
 	rows.Close()
+	menus := getUserMenus(u)
+	funcs := getUserFunctions(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/users.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"用户管理","CurrentUser":u,"Users":us})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"用户管理","CurrentUser":u,"Users":us,"Menus":menus,"UserFunctions":funcs,"CurrentUrl":"/users"})
 }
 
 func auditLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -574,8 +655,9 @@ func auditLogsHandler(w http.ResponseWriter, r *http.Request) {
 		ls=append(ls,x)
 	}
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/audit_logs.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"审计日志","CurrentUser":u,"Logs":ls})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"审计日志","CurrentUser":u,"Logs":ls,"Menus":menus,"CurrentUrl":"/audit-logs"})
 }
 
 func templatesHandler(w http.ResponseWriter, r *http.Request) {
@@ -586,8 +668,326 @@ func templatesHandler(w http.ResponseWriter, r *http.Request) {
 	rows,_ := db.Query(`SELECT t.id,t.name,t.code,t.version,COUNT(ts.id) FROM project_template t LEFT JOIN template_stage ts ON t.id=ts.template_id GROUP BY t.id`)
 	for rows.Next() { var x T; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Version,&x.StageCount); ts=append(ts,x) }
 	rows.Close()
+	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/templates.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目模板","CurrentUser":u,"Templates":ts})
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目模板","CurrentUser":u,"Templates":ts,"Menus":menus,"CurrentUrl":"/templates"})
+}
+
+func menusHandler(w http.ResponseWriter, r *http.Request) {
+	u := getSession(r)
+	if u == nil { http.Redirect(w,r,"/login",303); return }
+	if r.URL.Path == "/menus/api" {
+		if r.Method == "POST" {
+			var req struct {
+				ID       int    `json:"id"`
+				Name     string `json:"name"`
+				Icon     string `json:"icon"`
+				Url      string `json:"url"`
+				ParentID int    `json:"parent_id"`
+				OrderNum int    `json:"order_num"`
+				Status   int    `json:"status"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Name == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"菜单名称不能为空"})
+				return
+			}
+			if req.ID == 0 {
+				db.Exec(`INSERT INTO menu(name,icon,url,parent_id,order_num,status,created_at)VALUES(?,?,?,?,?,1,NOW())`,req.Name,req.Icon,req.Url,req.ParentID,req.OrderNum)
+				auditLog(u.ID,"create","menu","menu",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			} else {
+				db.Exec(`UPDATE menu SET name=?,icon=?,url=?,parent_id=?,order_num=?,status=?,updated_at=NOW() WHERE id=?`,req.Name,req.Icon,req.Url,req.ParentID,req.OrderNum,req.Status,req.ID)
+				auditLog(u.ID,"update","menu","menu",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+		if r.Method == "DELETE" {
+			var req struct{ ID int `json:"id"` }
+			json.NewDecoder(r.Body).Decode(&req)
+			db.Exec(`DELETE FROM menu WHERE id=?`,req.ID)
+			auditLog(u.ID,"delete","menu","menu",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+	}
+	type M struct {
+		ID, ParentID, OrderNum, Status, Level int
+		Name, Icon, Url, ParentName string
+	}
+	var ms []M
+	rows,_ := db.Query(`SELECT m.id,m.name,m.icon,m.url,m.parent_id,m.order_num,m.status,IFNULL(p.name,'') FROM menu m LEFT JOIN menu p ON m.parent_id=p.id ORDER BY m.parent_id,m.order_num`)
+	for rows.Next() {
+		var x M
+		rows.Scan(&x.ID,&x.Name,&x.Icon,&x.Url,&x.ParentID,&x.OrderNum,&x.Status,&x.ParentName)
+		if x.ParentID == 0 { x.Level = 0 } else { x.Level = 1 }
+		ms=append(ms,x)
+	}
+	rows.Close()
+	navMenus := getUserMenus(u)
+	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/menus.html"))
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"菜单管理","CurrentUser":u,"Menus":navMenus,"MenuList":ms,"CurrentUrl":"/menus"})
+}
+
+// 获取用户有权限的菜单
+func getUserMenus(u *User) []map[string]interface{} {
+	var menus []map[string]interface{}
+	var rows *sql.Rows
+	var err error
+	if u.IsAdmin == 1 {
+		rows, err = db.Query(`SELECT id,name,icon,url,parent_id,order_num FROM menu WHERE status=1 ORDER BY parent_id,order_num`)
+	} else {
+		rows, err = db.Query(`SELECT DISTINCT m.id,m.name,m.icon,m.url,m.parent_id,m.order_num FROM menu m INNER JOIN role_menu rm ON m.id=rm.menu_id INNER JOIN user_role ur ON rm.role_id=ur.role_id WHERE ur.user_id=? AND m.status=1 ORDER BY m.parent_id,m.order_num`, u.ID)
+	}
+	if err != nil { return menus }
+	defer rows.Close()
+	for rows.Next() {
+		var id, parentID, orderNum int
+		var name, icon, url string
+		rows.Scan(&id,&name,&icon,&url,&parentID,&orderNum)
+		menus = append(menus, map[string]interface{}{
+			"ID": id, "Name": name, "Icon": icon, "Url": url, "ParentID": parentID, "OrderNum": orderNum,
+		})
+	}
+	return menus
+}
+
+// 获取用户有权限的功能
+func getUserFunctions(u *User) map[string]bool {
+	funcs := make(map[string]bool)
+	var rows *sql.Rows
+	var err error
+	if u.IsAdmin == 1 {
+		rows, err = db.Query(`SELECT code FROM system_function WHERE status=1`)
+	} else {
+		rows, err = db.Query(`SELECT DISTINCT f.code FROM system_function f INNER JOIN role_function rf ON f.id=rf.function_id INNER JOIN user_role ur ON rf.role_id=ur.role_id WHERE ur.user_id=? AND f.status=1`, u.ID)
+	}
+	if err != nil { return funcs }
+	defer rows.Close()
+	for rows.Next() {
+		var code string
+		rows.Scan(&code)
+		funcs[code] = true
+	}
+	return funcs
+}
+
+// 检查用户是否有某个功能权限
+func hasFunctionPermission(u *User, funcCode string) bool {
+	if u.IsAdmin == 1 { return true }
+	var count int
+	db.QueryRow(`SELECT COUNT(*) FROM system_function f INNER JOIN role_function rf ON f.id=rf.function_id INNER JOIN user_role ur ON rf.role_id=ur.role_id WHERE ur.user_id=? AND f.code=? AND f.status=1`, u.ID, funcCode).Scan(&count)
+	return count > 0
+}
+
+// 权限检查中间件
+func checkPermission(funcCode string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			u := getSession(r)
+			if u == nil {
+				http.Redirect(w, r, "/login", 303)
+				return
+			}
+			if !hasFunctionPermission(u, funcCode) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "无权访问此功能，请联系管理员开通权限",
+				})
+				return
+			}
+			next(w, r)
+		}
+	}
+}
+
+func rolesHandler(w http.ResponseWriter, r *http.Request) {
+	u := getSession(r)
+	if u == nil { http.Redirect(w,r,"/login",303); return }
+	if r.URL.Path == "/roles/api" {
+		if r.Method == "POST" {
+			var req struct {
+				ID          int    `json:"id"`
+				Name        string `json:"name"`
+				Code        string `json:"code"`
+				Description string `json:"description"`
+				Status      int    `json:"status"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Name == "" || req.Code == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"角色名称和标识不能为空"})
+				return
+			}
+			if req.ID == 0 {
+				// 创建角色 - 检查权限
+				if !hasFunctionPermission(u, "role:create") {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建角色，请联系管理员开通权限"})
+					return
+				}
+				db.Exec(`INSERT INTO role(name,code,description,status,created_at)VALUES(?,?,?,?,1,NOW())`,req.Name,req.Code,req.Description,req.Status)
+				auditLog(u.ID,"create","role","role",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			} else {
+				// 编辑角色 - 检查权限
+				if !hasFunctionPermission(u, "role:edit") {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑角色，请联系管理员开通权限"})
+					return
+				}
+				db.Exec(`UPDATE role SET name=?,code=?,description=?,status=?,updated_at=NOW() WHERE id=?`,req.Name,req.Code,req.Description,req.Status,req.ID)
+				auditLog(u.ID,"update","role","role",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+		if r.Method == "DELETE" {
+			var req struct{ ID int `json:"id"` }
+			json.NewDecoder(r.Body).Decode(&req)
+			if !hasFunctionPermission(u, "role:delete") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除角色，请联系管理员开通权限"})
+				return
+			}
+			db.Exec(`DELETE FROM role WHERE id=?`,req.ID)
+			db.Exec(`DELETE FROM role_menu WHERE role_id=?`,req.ID)
+			db.Exec(`DELETE FROM role_function WHERE role_id=?`,req.ID)
+			auditLog(u.ID,"delete","role","role",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+	}
+	if r.URL.Path == "/roles/menu" && r.Method == "GET" {
+		roleID := r.URL.Query().Get("role_id")
+		type M struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+			Icon string `json:"icon"`
+		}
+		var ms []M
+		rows,_ := db.Query(`SELECT id,name,icon FROM menu ORDER BY order_num`)
+		for rows.Next() { var x M; rows.Scan(&x.ID,&x.Name,&x.Icon); ms=append(ms,x) }
+		rows.Close()
+		roleMenus := make([]int, 0)
+		rows2,_ := db.Query(`SELECT menu_id FROM role_menu WHERE role_id=?`,roleID)
+		for rows2.Next() { var mid int; rows2.Scan(&mid); roleMenus=append(roleMenus,mid) }
+		rows2.Close()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"menus":ms,"role_menus":roleMenus})
+		return
+	}
+	if r.URL.Path == "/roles/menu" && r.Method == "POST" {
+		var req struct{ RoleID int `json:"role_id"`; MenuIDs []int `json:"menu_ids"` }
+		json.NewDecoder(r.Body).Decode(&req)
+		db.Exec(`DELETE FROM role_menu WHERE role_id=?`,req.RoleID)
+		for _, mid := range req.MenuIDs {
+			db.Exec(`INSERT INTO role_menu(role_id,menu_id)VALUES(?,?)`,req.RoleID,mid)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+		return
+	}
+	if r.URL.Path == "/roles/function" && r.Method == "GET" {
+		roleID := r.URL.Query().Get("role_id")
+		type F struct {
+			ID       int    `json:"id"`
+			Name     string `json:"name"`
+			Code     string `json:"code"`
+			MenuName string `json:"menu_name"`
+			MenuIcon string `json:"menu_icon"`
+		}
+		var fs []F
+		rows,_ := db.Query(`SELECT f.id,f.name,f.code,m.name,m.icon FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY m.order_num,f.id`)
+		for rows.Next() { var x F; rows.Scan(&x.ID,&x.Name,&x.Code,&x.MenuName,&x.MenuIcon); fs=append(fs,x) }
+		rows.Close()
+		roleFuncs := make([]int, 0)
+		rows2,_ := db.Query(`SELECT function_id FROM role_function WHERE role_id=?`,roleID)
+		for rows2.Next() { var fid int; rows2.Scan(&fid); roleFuncs=append(roleFuncs,fid) }
+		rows2.Close()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"functions":fs,"role_funcs":roleFuncs})
+		return
+	}
+	if r.URL.Path == "/roles/function" && r.Method == "POST" {
+		var req struct{ RoleID int `json:"role_id"`; FuncIDs []int `json:"function_ids"` }
+		json.NewDecoder(r.Body).Decode(&req)
+		db.Exec(`DELETE FROM role_function WHERE role_id=?`,req.RoleID)
+		for _, fid := range req.FuncIDs {
+			db.Exec(`INSERT INTO role_function(role_id,function_id)VALUES(?,?)`,req.RoleID,fid)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+		return
+	}
+	type R struct{ ID, Status int; Name, Code, Description string }
+	var rs []R
+	rows,_ := db.Query(`SELECT id,name,code,description,status FROM role ORDER BY id`)
+	for rows.Next() { var x R; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Description,&x.Status); rs=append(rs,x) }
+	rows.Close()
+	menus := getUserMenus(u)
+	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/roles.html"))
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"角色管理","CurrentUser":u,"Roles":rs,"Menus":menus,"CurrentUrl":"/roles"})
+}
+
+func functionsHandler(w http.ResponseWriter, r *http.Request) {
+	u := getSession(r)
+	if u == nil { http.Redirect(w,r,"/login",303); return }
+	if r.URL.Path == "/functions/api" {
+		if r.Method == "POST" {
+			var req struct {
+				ID          int    `json:"id"`
+				Name        string `json:"name"`
+				Code        string `json:"code"`
+				MenuID      int    `json:"menu_id"`
+				Url         string `json:"url"`
+				Method      string `json:"method"`
+				Description string `json:"description"`
+				Status      int    `json:"status"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Name == "" || req.Code == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"功能名称和标识不能为空"})
+				return
+			}
+			if req.ID == 0 {
+				db.Exec(`INSERT INTO system_function(menu_id,name,code,url,method,description,status,created_at)VALUES(?,?,?,?,?,?,1,NOW())`,req.MenuID,req.Name,req.Code,req.Url,req.Method,req.Description)
+				auditLog(u.ID,"create","function","system_function",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			} else {
+				db.Exec(`UPDATE system_function SET menu_id=?,name=?,code=?,url=?,method=?,description=?,status=?,updated_at=NOW() WHERE id=?`,req.MenuID,req.Name,req.Code,req.Url,req.Method,req.Description,req.Status,req.ID)
+				auditLog(u.ID,"update","function","system_function",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+		if r.Method == "DELETE" {
+			var req struct{ ID int `json:"id"` }
+			json.NewDecoder(r.Body).Decode(&req)
+			db.Exec(`DELETE FROM system_function WHERE id=?`,req.ID)
+			auditLog(u.ID,"delete","function","system_function",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
+			return
+		}
+	}
+	type F struct {
+		ID, MenuID, Status int
+		Name, Code, MenuName, Url, Method, Description string
+	}
+	var fs []F
+	rows,_ := db.Query(`SELECT f.id,f.menu_id,f.name,f.code,m.name,f.url,f.method,f.description,f.status FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY f.menu_id,f.id`)
+	for rows.Next() {
+		var x F
+		rows.Scan(&x.ID,&x.MenuID,&x.Name,&x.Code,&x.MenuName,&x.Url,&x.Method,&x.Description,&x.Status)
+		fs=append(fs,x)
+	}
+	rows.Close()
+	
+	type M struct{ ID int; Name string }
+	var ms []M
+	rows2,_ := db.Query(`SELECT id,name FROM menu WHERE status=1 ORDER BY order_num`)
+	for rows2.Next() {
+		var x M
+		rows2.Scan(&x.ID,&x.Name)
+		ms=append(ms,x)
+	}
+	rows2.Close()
+	
+	menus := getUserMenus(u)
+	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/functions.html"))
+	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"功能管理","CurrentUser":u,"Functions":fs,"Menus":menus,"MenuList":ms,"CurrentUrl":"/functions"})
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) { clearSession(w); http.Redirect(w,r,"/login",303) }
@@ -613,6 +1013,14 @@ func main() {
 	http.HandleFunc("/users",usersHandler)
 	http.HandleFunc("/audit-logs",auditLogsHandler)
 	http.HandleFunc("/templates",templatesHandler)
+	http.HandleFunc("/menus/api",menusHandler)
+	http.HandleFunc("/menus",menusHandler)
+	http.HandleFunc("/functions/api",functionsHandler)
+	http.HandleFunc("/functions",functionsHandler)
+	http.HandleFunc("/roles/api",rolesHandler)
+	http.HandleFunc("/roles/menu",rolesHandler)
+	http.HandleFunc("/roles/function",rolesHandler)
+	http.HandleFunc("/roles",rolesHandler)
 	http.HandleFunc("/",homeHandler)
 	log.Printf("PMS starting on port %d",config.ServerPort)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d",config.ServerPort),nil))

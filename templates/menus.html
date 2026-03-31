@@ -1,0 +1,122 @@
+{{define "content"}}
+<div class="page-header flex-between">
+    <div>
+        <h1 class="page-title">菜单管理</h1>
+        <a href="/functions" style="margin-left:10px;font-size:14px;color:#666;">功能管理 →</a>
+    </div>
+    <button class="btn btn-primary" onclick="showMenuModal()">+ 新建菜单</button>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead><tr><th>菜单名称</th><th>图标</th><th>URL</th><th>父菜单</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+            {{range .MenuList}}
+            <tr>
+                <td>{{if eq .Level 1}}&nbsp;&nbsp;&nbsp;&nbsp;└─ {{.Name}}{{else}}{{.Name}}{{end}}</td>
+                <td>{{.Icon}}</td>
+                <td>{{.Url}}</td>
+                <td>{{if eq .ParentID 0}}-{{else}}{{.ParentName}}{{end}}</td>
+                <td>{{.OrderNum}}</td>
+                <td>{{if eq .Status 1}}<span class="tag tag-success">启用</span>{{else}}<span class="tag">禁用</span>{{end}}</td>
+                <td>
+                    <button class="btn btn-sm btn-default" onclick="editMenu({{.ID}},'{{.Name}}','{{.Icon}}','{{.Url}}',{{.ParentID}},{{.OrderNum}},{{.Status}})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteMenu({{.ID}})">删除</button>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<!-- 菜单模态框 -->
+<div id="menuModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="modalTitle">新建菜单</h3><span class="close" onclick="closeModal('menuModal')">&times;</span></div>
+        <div class="modal-body">
+            <input type="hidden" id="menuId">
+            <div class="form-group"><label>菜单名称</label><input type="text" id="menuName" class="form-control"></div>
+            <div class="form-group"><label>图标</label><input type="text" id="menuIcon" class="form-control" placeholder="如：dashboard, folder, users"></div>
+            <div class="form-group"><label>URL</label><input type="text" id="menuUrl" class="form-control" placeholder="如：/dashboard"></div>
+            <div class="form-group"><label>父菜单</label><select id="menuParent" class="form-control"><option value="0">一级菜单</option>{{range .MenuList}}{{if eq .Level 0}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}</select></div>
+            <div class="form-group"><label>排序号</label><input type="number" id="menuOrder" class="form-control" value="0"></div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="menuStatus" style="width:18px;height:18px;" checked>
+                <label for="menuStatus" style="margin:0;cursor:pointer;">启用</label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeModal('menuModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveMenu()">保存</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal-content{background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eee}
+.modal-header h3{margin:0;font-size:18px}
+.modal-body{padding:20px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #eee}
+.close{cursor:pointer;font-size:24px;color:#999}
+.close:hover{color:#333}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:6px;font-weight:500}
+.form-control{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box}
+.form-control:focus{outline:none;border-color:#1890ff}
+</style>
+<script>
+function closeModal(id){document.getElementById(id).style.display='none'}
+function showMenuModal(){
+    document.getElementById('modalTitle').textContent='新建菜单';
+    document.getElementById('menuId').value='';
+    document.getElementById('menuName').value='';
+    document.getElementById('menuIcon').value='';
+    document.getElementById('menuUrl').value='';
+    document.getElementById('menuParent').value='0';
+    document.getElementById('menuOrder').value='0';
+    document.getElementById('menuStatus').checked=true;
+    document.getElementById('menuModal').style.display='flex';
+}
+function editMenu(id,name,icon,url,parent,order,status){
+    document.getElementById('modalTitle').textContent='编辑菜单';
+    document.getElementById('menuId').value=id;
+    document.getElementById('menuName').value=name;
+    document.getElementById('menuIcon').value=icon;
+    document.getElementById('menuUrl').value=url;
+    document.getElementById('menuParent').value=parent;
+    document.getElementById('menuOrder').value=order;
+    document.getElementById('menuStatus').checked=(status==1);
+    document.getElementById('menuModal').style.display='flex';
+}
+async function saveMenu(){
+    var id=document.getElementById('menuId').value;
+    var name=document.getElementById('menuName').value;
+    var icon=document.getElementById('menuIcon').value;
+    var url=document.getElementById('menuUrl').value;
+    var parent=parseInt(document.getElementById('menuParent').value);
+    var order=parseInt(document.getElementById('menuOrder').value);
+    var status=document.getElementById('menuStatus').checked?1:0;
+    
+    if(name==''){alert('菜单名称不能为空');return;}
+    
+    var data={name:name,icon:icon,url:url,parent_id:parent,order_num:order,status:status};
+    if(id!=''){data.id=parseInt(id);}
+    
+    try{
+        var r=await fetch('/menus/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('保存失败：'+res.message)}
+    }catch(e){alert('保存失败：'+e.message);}
+}
+async function deleteMenu(id){
+    if(!confirm('确定要删除这个菜单吗？'))return;
+    try{
+        var r=await fetch('/menus/api',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})});
+        var res=await r.json();
+        if(res.success){window.location.reload()}else{alert('删除失败：'+res.message)}
+    }catch(e){alert('删除失败：'+e.message);}
+}
+</script>
+{{end}}
