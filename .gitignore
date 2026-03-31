@@ -24,9 +24,9 @@ vendor/
 build/
 dist/
 
-# Binary
-pms
-server
+# Root build output only (leading / avoids ignoring e.g. cmd/server/)
+/pms
+/server
 
 # Logs
 *.log
