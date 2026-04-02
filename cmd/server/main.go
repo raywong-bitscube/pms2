@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -29,71 +28,6 @@ type Config struct {
 
 var db *sql.DB
 var sessions = make(map[string]*User)
-
-// 审计日志队列 - 批量写入优化
-type auditLogEntry struct {
-	uid       int
-	atype     string
-	acat      string
-	tbl       string
-	rid       int64
-	old, nw   string
-	ip, ua    string
-	url, meth string
-}
-
-var auditLogChan = make(chan auditLogEntry, 100)
-
-// 启动审计日志批量写入协程
-func initAuditLogWorker() {
-	go func() {
-		batch := make([]auditLogEntry, 0, 10)
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		
-		for {
-			select {
-			case entry := <-auditLogChan:
-				batch = append(batch, entry)
-				if len(batch) >= 10 {
-					flushAuditLogs(batch)
-					batch = batch[:0]
-				}
-			case <-ticker.C:
-				if len(batch) > 0 {
-					flushAuditLogs(batch)
-					batch = batch[:0]
-				}
-			}
-		}
-	}()
-}
-
-func flushAuditLogs(batch []auditLogEntry) {
-	if len(batch) == 0 || db == nil { return }
-	
-	// 批量插入
-	values := make([]interface{}, 0, len(batch)*11)
-	placeholder := make([]string, 0, len(batch))
-	
-	for _, e := range batch {
-		placeholder = append(placeholder, "(?,?,?,?,?,?,?,?,?,?,?,NOW())")
-		var oldData, newData interface{}
-		if e.old == "" { oldData = nil } else { oldData = e.old }
-		if e.nw == "" { newData = nil } else { newData = e.nw }
-		values = append(values, e.uid, e.atype, e.acat, e.tbl, e.rid, oldData, newData, e.ip, e.ua, e.url, e.meth)
-	}
-	
-	query := fmt.Sprintf(`INSERT INTO audit_log (user_id,action_type,action_category,table_name,record_id,old_data,new_data,ip_address,user_agent,request_url,request_method,created_at) VALUES %s`, 
-		strings.Join(placeholder, ","))
-	
-	_, err := db.Exec(query, values...)
-	if err != nil {
-		log.Printf("auditLog batch error: %v\n", err)
-	} else {
-		log.Printf("auditLog: flushed %d entries\n", len(batch))
-	}
-}
 
 type User struct {
 	ID int; Username string; RealName string; Email string; Status int; IsAdmin int
@@ -205,9 +139,11 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT COUNT(*) FROM user WHERE status=1").Scan(&tu)
 	stats := map[string]int{"TotalProjects":tp,"ActiveProjects":ap,"TotalDocuments":td,"TotalUsers":tu}
 	var ps []Project
-	rows,_ := db.Query("SELECT id,name,code,status,progress,created_at FROM project WHERE status != 4 ORDER BY created_at DESC LIMIT 5")
-	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.CreatedAt); ps=append(ps,p) }
-	rows.Close()
+	rows,err := db.Query("SELECT id,name,code,status,progress,created_at FROM project WHERE status != 4 ORDER BY created_at DESC LIMIT 5")
+	if err == nil {
+		for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.CreatedAt); ps=append(ps,p) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/home.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"首页","CurrentUser":u,"Stats":stats,"RecentProjects":ps,"Menus":menus,"CurrentUrl":"/"})
@@ -225,9 +161,11 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 	
 	// 页面路由 - 只显示未归档的项目 (status != 4)
 	var ps []Project
-	rows,_ := db.Query(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description,p.created_at FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.status != 4 ORDER BY p.created_at DESC`)
-	for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description,&p.CreatedAt); ps=append(ps,p) }
-	rows.Close()
+	rows,err := db.Query(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description,p.created_at FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.status != 4 ORDER BY p.created_at DESC`)
+	if err == nil {
+		for rows.Next() { var p Project; rows.Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description,&p.CreatedAt); ps=append(ps,p) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/projects.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目管理","CurrentUser":u,"Projects":ps,"Menus":menus,"CurrentUrl":"/projects"})
@@ -357,9 +295,11 @@ func projectDetailHandler(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.id=?`,id).
 		Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description)
 	var ss []ProjectStage
-	rows,_ := db.Query("SELECT id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE project_id=? ORDER BY order_num",id)
-	for rows.Next() { var s ProjectStage; rows.Scan(&s.ID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate); ss=append(ss,s) }
-	rows.Close()
+	rows,err := db.Query("SELECT id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE project_id=? ORDER BY order_num",id)
+	if err == nil {
+		for rows.Next() { var s ProjectStage; rows.Scan(&s.ID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate); ss=append(ss,s) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/project_detail.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目详情","CurrentUser":u,"Project":p,"Stages":ss,"Menus":menus,"CurrentUrl":"/projects"})
@@ -418,14 +358,16 @@ func stageDetailHandler(w http.ResponseWriter, r *http.Request) {
 		FileSize int64; Status, UploadedBy int
 	}
 	var ds []Doc
-	rows,_ := db.Query(`SELECT id,project_id,name,type,file_name,file_path,version,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i'),file_size,status,uploaded_by FROM document WHERE stage_id=? AND status=1 ORDER BY created_at DESC`,id)
-	for rows.Next() {
-		var d Doc
-		rows.Scan(&d.ID,&d.ProjectID,&d.Name,&d.Type,&d.FileName,&d.FilePath,&d.Version,&d.CreatedAtStr,&d.FileSize,&d.Status,&d.UploadedBy)
-		if d.FileSize >= 1048576 { d.FileSizeStr = fmt.Sprintf("%.2f MB",float64(d.FileSize)/1048576) } else if d.FileSize >= 1024 { d.FileSizeStr = fmt.Sprintf("%.2f KB",float64(d.FileSize)/1024) } else { d.FileSizeStr = fmt.Sprintf("%d B",d.FileSize) }
-		ds=append(ds,d)
+	rows,err := db.Query(`SELECT id,project_id,name,type,file_name,file_path,version,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i'),file_size,status,uploaded_by FROM document WHERE stage_id=? AND status=1 ORDER BY created_at DESC`,id)
+	if err == nil {
+		for rows.Next() {
+			var d Doc
+			rows.Scan(&d.ID,&d.ProjectID,&d.Name,&d.Type,&d.FileName,&d.FilePath,&d.Version,&d.CreatedAtStr,&d.FileSize,&d.Status,&d.UploadedBy)
+			if d.FileSize >= 1048576 { d.FileSizeStr = fmt.Sprintf("%.2f MB",float64(d.FileSize)/1048576) } else if d.FileSize >= 1024 { d.FileSizeStr = fmt.Sprintf("%.2f KB",float64(d.FileSize)/1024) } else { d.FileSizeStr = fmt.Sprintf("%d B",d.FileSize) }
+			ds=append(ds,d)
+		}
+		rows.Close()
 	}
-	rows.Close()
 	
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/stage_detail.html"))
@@ -552,9 +494,11 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ds []Document
-	rows,_ := db.Query(`SELECT d.id,d.project_id,p.name,d.stage_id,IFNULL(s.name,'-'),d.name,d.type,d.file_name,d.file_size,d.version,d.status,d.uploaded_by,IFNULL(u.real_name,u.username),d.created_at FROM document d LEFT JOIN project p ON d.project_id=p.id LEFT JOIN project_stage s ON d.stage_id=s.id LEFT JOIN user u ON d.uploaded_by=u.id WHERE d.status=1 ORDER BY d.created_at DESC`)
-	for rows.Next() { var d Document; rows.Scan(&d.ID,&d.ProjectID,&d.ProjectName,&d.StageID,&d.StageName,&d.Name,&d.Type,&d.FileName,&d.FileSize,&d.Version,&d.Status,&d.UploadedBy,&d.UploadedByName,&d.CreatedAt); ds=append(ds,d) }
-	rows.Close()
+	rows,err := db.Query(`SELECT d.id,d.project_id,p.name,d.stage_id,IFNULL(s.name,'-'),d.name,d.type,d.file_name,d.file_size,d.version,d.status,d.uploaded_by,IFNULL(u.real_name,u.username),d.created_at FROM document d LEFT JOIN project p ON d.project_id=p.id LEFT JOIN project_stage s ON d.stage_id=s.id LEFT JOIN user u ON d.uploaded_by=u.id WHERE d.status=1 ORDER BY d.created_at DESC`)
+	if err == nil {
+		for rows.Next() { var d Document; rows.Scan(&d.ID,&d.ProjectID,&d.ProjectName,&d.StageID,&d.StageName,&d.Name,&d.Type,&d.FileName,&d.FileSize,&d.Version,&d.Status,&d.UploadedBy,&d.UploadedByName,&d.CreatedAt); ds=append(ds,d) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/documents.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"文档管理","CurrentUser":u,"Documents":ds,"Menus":menus,"CurrentUrl":"/documents"})
@@ -643,13 +587,17 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 				Code string `json:"code"`
 			}
 			var roles []Role
-			rows,_ := db.Query(`SELECT id,name,code FROM role WHERE status=1 ORDER BY id`)
-			for rows.Next() { var x Role; rows.Scan(&x.ID,&x.Name,&x.Code); roles=append(roles,x) }
-			rows.Close()
+			rows,err := db.Query(`SELECT id,name,code FROM role WHERE status=1 ORDER BY id`)
+			if err == nil {
+				for rows.Next() { var x Role; rows.Scan(&x.ID,&x.Name,&x.Code); roles=append(roles,x) }
+				rows.Close()
+			}
 			userRoles := make([]int, 0)
-			rows2,_ := db.Query(`SELECT role_id FROM user_role WHERE user_id=?`,userID)
-			for rows2.Next() { var rid int; rows2.Scan(&rid); userRoles=append(userRoles,rid) }
-			rows2.Close()
+			rows2,err2 := db.Query(`SELECT role_id FROM user_role WHERE user_id=?`,userID)
+			if err2 == nil {
+				for rows2.Next() { var rid int; rows2.Scan(&rid); userRoles=append(userRoles,rid) }
+				rows2.Close()
+			}
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"roles":roles,"user_roles":userRoles})
 			return
 		}
@@ -684,9 +632,11 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	type U struct{ID,Status,IsAdmin int;Username,RealName,Email string;CreatedAt string}
 	var us []U
-	rows,_ := db.Query("SELECT id,username,real_name,email,is_admin,status,DATE_FORMAT(created_at,'%Y-%m-%d') FROM user ORDER BY created_at DESC")
-	for rows.Next() { var x U; rows.Scan(&x.ID,&x.Username,&x.RealName,&x.Email,&x.IsAdmin,&x.Status,&x.CreatedAt); us=append(us,x) }
-	rows.Close()
+	rows,err := db.Query("SELECT id,username,real_name,email,is_admin,status,DATE_FORMAT(created_at,'%Y-%m-%d') FROM user ORDER BY created_at DESC")
+	if err == nil {
+		for rows.Next() { var x U; rows.Scan(&x.ID,&x.Username,&x.RealName,&x.Email,&x.IsAdmin,&x.Status,&x.CreatedAt); us=append(us,x) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	funcs := getUserFunctions(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/users.html"))
@@ -711,13 +661,15 @@ func auditLogsHandler(w http.ResponseWriter, r *http.Request) {
 		CreatedAt      string
 	}
 	var ls []L
-	rows,_ := db.Query(`SELECT al.id,u.username,al.action_type,al.action_category,al.table_name,al.record_id,al.ip_address,al.user_agent,al.request_url,al.request_method,IFNULL(al.old_data,''),IFNULL(al.new_data,''),DATE_FORMAT(al.created_at,'%Y-%m-%d %H:%i:%s') FROM audit_log al LEFT JOIN user u ON al.user_id=u.id ORDER BY al.created_at DESC LIMIT 100`)
-	for rows.Next() {
-		var x L
-		rows.Scan(&x.ID,&x.Username,&x.ActionType,&x.ActionCategory,&x.TableName,&x.RecordID,&x.IPAddress,&x.UserAgent,&x.RequestURL,&x.RequestMethod,&x.OldData,&x.NewData,&x.CreatedAt)
-		ls=append(ls,x)
+	rows,err := db.Query(`SELECT al.id,u.username,al.action_type,al.action_category,al.table_name,al.record_id,al.ip_address,al.user_agent,al.request_url,al.request_method,IFNULL(al.old_data,''),IFNULL(al.new_data,''),DATE_FORMAT(al.created_at,'%Y-%m-%d %H:%i:%s') FROM audit_log al LEFT JOIN user u ON al.user_id=u.id ORDER BY al.created_at DESC LIMIT 100`)
+	if err == nil {
+		for rows.Next() {
+			var x L
+			rows.Scan(&x.ID,&x.Username,&x.ActionType,&x.ActionCategory,&x.TableName,&x.RecordID,&x.IPAddress,&x.UserAgent,&x.RequestURL,&x.RequestMethod,&x.OldData,&x.NewData,&x.CreatedAt)
+			ls=append(ls,x)
+		}
+		rows.Close()
 	}
-	rows.Close()
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/audit_logs.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"审计日志","CurrentUser":u,"Logs":ls,"Menus":menus,"CurrentUrl":"/audit-logs"})
@@ -728,9 +680,11 @@ func templatesHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	type T struct{ID,StageCount int;Name,Code,Version string}
 	var ts []T
-	rows,_ := db.Query(`SELECT t.id,t.name,t.code,t.version,COUNT(ts.id) FROM project_template t LEFT JOIN template_stage ts ON t.id=ts.template_id GROUP BY t.id`)
-	for rows.Next() { var x T; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Version,&x.StageCount); ts=append(ts,x) }
-	rows.Close()
+	rows,err := db.Query(`SELECT t.id,t.name,t.code,t.version,COUNT(ts.id) FROM project_template t LEFT JOIN template_stage ts ON t.id=ts.template_id GROUP BY t.id`)
+	if err == nil {
+		for rows.Next() { var x T; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Version,&x.StageCount); ts=append(ts,x) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/templates.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"项目模板","CurrentUser":u,"Templates":ts,"Menus":menus,"CurrentUrl":"/templates"})
@@ -803,14 +757,16 @@ func menusHandler(w http.ResponseWriter, r *http.Request) {
 		Name, Icon, Url, ParentName string
 	}
 	var ms []M
-	rows,_ := db.Query(`SELECT m.id,m.name,m.icon,m.url,m.parent_id,m.order_num,m.status,IFNULL(p.name,'') FROM menu m LEFT JOIN menu p ON m.parent_id=p.id ORDER BY m.parent_id,m.order_num`)
-	for rows.Next() {
-		var x M
-		rows.Scan(&x.ID,&x.Name,&x.Icon,&x.Url,&x.ParentID,&x.OrderNum,&x.Status,&x.ParentName)
-		if x.ParentID == 0 { x.Level = 0 } else { x.Level = 1 }
-		ms=append(ms,x)
+	rows,err := db.Query(`SELECT m.id,m.name,m.icon,m.url,m.parent_id,m.order_num,m.status,IFNULL(p.name,'') FROM menu m LEFT JOIN menu p ON m.parent_id=p.id ORDER BY m.parent_id,m.order_num`)
+	if err == nil {
+		for rows.Next() {
+			var x M
+			rows.Scan(&x.ID,&x.Name,&x.Icon,&x.Url,&x.ParentID,&x.OrderNum,&x.Status,&x.ParentName)
+			if x.ParentID == 0 { x.Level = 0 } else { x.Level = 1 }
+			ms=append(ms,x)
+		}
+		rows.Close()
 	}
-	rows.Close()
 	navMenus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/menus.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"菜单管理","CurrentUser":u,"Menus":navMenus,"MenuList":ms,"CurrentUrl":"/menus"})
@@ -966,13 +922,17 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 			Icon string `json:"icon"`
 		}
 		var ms []M
-		rows,_ := db.Query(`SELECT id,name,icon FROM menu ORDER BY order_num`)
-		for rows.Next() { var x M; rows.Scan(&x.ID,&x.Name,&x.Icon); ms=append(ms,x) }
-		rows.Close()
+		rows,err := db.Query(`SELECT id,name,icon FROM menu ORDER BY order_num`)
+		if err == nil {
+			for rows.Next() { var x M; rows.Scan(&x.ID,&x.Name,&x.Icon); ms=append(ms,x) }
+			rows.Close()
+		}
 		roleMenus := make([]int, 0)
-		rows2,_ := db.Query(`SELECT menu_id FROM role_menu WHERE role_id=?`,roleID)
-		for rows2.Next() { var mid int; rows2.Scan(&mid); roleMenus=append(roleMenus,mid) }
-		rows2.Close()
+		rows2,err2 := db.Query(`SELECT menu_id FROM role_menu WHERE role_id=?`,roleID)
+		if err2 == nil {
+			for rows2.Next() { var mid int; rows2.Scan(&mid); roleMenus=append(roleMenus,mid) }
+			rows2.Close()
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"menus":ms,"role_menus":roleMenus})
 		return
 	}
@@ -1016,13 +976,17 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 			MenuIcon string `json:"menu_icon"`
 		}
 		var fs []F
-		rows,_ := db.Query(`SELECT f.id,f.name,f.code,m.name,m.icon FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY m.order_num,f.id`)
-		for rows.Next() { var x F; rows.Scan(&x.ID,&x.Name,&x.Code,&x.MenuName,&x.MenuIcon); fs=append(fs,x) }
-		rows.Close()
+		rows,err := db.Query(`SELECT f.id,f.name,f.code,m.name,m.icon FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY m.order_num,f.id`)
+		if err == nil {
+			for rows.Next() { var x F; rows.Scan(&x.ID,&x.Name,&x.Code,&x.MenuName,&x.MenuIcon); fs=append(fs,x) }
+			rows.Close()
+		}
 		roleFuncs := make([]int, 0)
-		rows2,_ := db.Query(`SELECT function_id FROM role_function WHERE role_id=?`,roleID)
-		for rows2.Next() { var fid int; rows2.Scan(&fid); roleFuncs=append(roleFuncs,fid) }
-		rows2.Close()
+		rows2,err2 := db.Query(`SELECT function_id FROM role_function WHERE role_id=?`,roleID)
+		if err2 == nil {
+			for rows2.Next() { var fid int; rows2.Scan(&fid); roleFuncs=append(roleFuncs,fid) }
+			rows2.Close()
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"functions":fs,"role_funcs":roleFuncs})
 		return
 	}
@@ -1058,9 +1022,11 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	type R struct{ ID, Status int; Name, Code, Description string }
 	var rs []R
-	rows,_ := db.Query(`SELECT id,name,code,description,status FROM role ORDER BY id`)
-	for rows.Next() { var x R; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Description,&x.Status); rs=append(rs,x) }
-	rows.Close()
+	rows,err := db.Query(`SELECT id,name,code,description,status FROM role ORDER BY id`)
+	if err == nil {
+		for rows.Next() { var x R; rows.Scan(&x.ID,&x.Name,&x.Code,&x.Description,&x.Status); rs=append(rs,x) }
+		rows.Close()
+	}
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/roles.html"))
 	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"角色管理","CurrentUser":u,"Roles":rs,"Menus":menus,"CurrentUrl":"/roles"})
@@ -1134,23 +1100,27 @@ func functionsHandler(w http.ResponseWriter, r *http.Request) {
 		Name, Code, MenuName, Url, Method, Description string
 	}
 	var fs []F
-	rows,_ := db.Query(`SELECT f.id,f.menu_id,f.name,f.code,m.name,f.url,f.method,f.description,f.status FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY f.menu_id,f.id`)
-	for rows.Next() {
-		var x F
-		rows.Scan(&x.ID,&x.MenuID,&x.Name,&x.Code,&x.MenuName,&x.Url,&x.Method,&x.Description,&x.Status)
-		fs=append(fs,x)
+	rows,err := db.Query(`SELECT f.id,f.menu_id,f.name,f.code,m.name,f.url,f.method,f.description,f.status FROM system_function f LEFT JOIN menu m ON f.menu_id=m.id ORDER BY f.menu_id,f.id`)
+	if err == nil {
+		for rows.Next() {
+			var x F
+			rows.Scan(&x.ID,&x.MenuID,&x.Name,&x.Code,&x.MenuName,&x.Url,&x.Method,&x.Description,&x.Status)
+			fs=append(fs,x)
+		}
+		rows.Close()
 	}
-	rows.Close()
 	
 	type M struct{ ID int; Name string }
 	var ms []M
-	rows2,_ := db.Query(`SELECT id,name FROM menu WHERE status=1 ORDER BY order_num`)
-	for rows2.Next() {
-		var x M
-		rows2.Scan(&x.ID,&x.Name)
-		ms=append(ms,x)
+	rows2,err2 := db.Query(`SELECT id,name FROM menu WHERE status=1 ORDER BY order_num`)
+	if err2 == nil {
+		for rows2.Next() {
+			var x M
+			rows2.Scan(&x.ID,&x.Name)
+			ms=append(ms,x)
+		}
+		rows2.Close()
 	}
-	rows2.Close()
 	
 	menus := getUserMenus(u)
 	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/functions.html"))
@@ -1162,8 +1132,6 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) { clearSession(w); ht
 func main() {
 	if err := initDB(); err != nil { log.Fatalf("DB error:%v",err) }
 	log.Printf("Database connected")
-	initAuditLogWorker()
-	log.Printf("Audit log worker started")
 	os.MkdirAll(config.UploadDir,0755)
 	http.Handle("/static/",http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))
 	http.HandleFunc("/login",loginHandler)
