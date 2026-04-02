@@ -546,12 +546,17 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/users/api" {
 		if r.Method == "POST" {
-			// 重置密码接口
+			body, errRead := io.ReadAll(r.Body)
+			if errRead != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取请求失败"})
+				return
+			}
+			// 重置密码接口（须与下方新建/编辑共用同一 body，不可 Decode 两次 r.Body）
 			var resetReq struct {
 				Action   string `json:"action"`
 				UserID   int    `json:"user_id"`
 			}
-			json.NewDecoder(r.Body).Decode(&resetReq)
+			_ = json.Unmarshal(body, &resetReq)
 			if resetReq.Action == "reset_password" && resetReq.UserID > 0 {
 				if !hasFunctionPermission(u, "user:reset_password") {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权重置用户密码，请联系管理员开通权限"})
@@ -583,7 +588,10 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 				IsAdmin  int    `json:"is_admin"`
 				Status   int    `json:"status"`
 			}
-			json.NewDecoder(r.Body).Decode(&req)
+			if err := json.Unmarshal(body, &req); err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析失败"})
+				return
+			}
 			if req.Username == "" {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"用户名不能为空"})
 				return
