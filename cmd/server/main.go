@@ -678,8 +678,10 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	menus := getUserMenus(u)
 	funcs := getUserFunctions(u)
-	tmpl := template.Must(template.ParseFiles("templates/base.html","templates/users.html"))
-	tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"用户管理","CurrentUser":u,"Users":us,"Menus":menus,"UserFunctions":funcs,"CurrentUrl":"/users"})
+	tmpl, err := template.ParseFiles("templates/base.html","templates/users.html")
+	if err != nil { log.Printf("usersHandler template parse error: %v", err); http.Error(w, err.Error(), 500); return }
+	err = tmpl.ExecuteTemplate(w,"base.html",map[string]interface{}{"Title":"用户管理","CurrentUser":u,"Users":us,"Menus":menus,"UserFunctions":funcs,"CurrentUrl":"/users"})
+	if err != nil { log.Printf("usersHandler template exec error: %v", err); http.Error(w, err.Error(), 500); return }
 }
 
 func auditLogsHandler(w http.ResponseWriter, r *http.Request) {
