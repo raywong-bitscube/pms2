@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -236,8 +238,9 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		var oldStatus, oldProgress int
 		db.QueryRow("SELECT name,code,status,progress,description FROM project WHERE id=?",req.ID).
 			Scan(&oldName,&oldCode,&oldStatus,&oldProgress,&oldDesc)
-		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"progress":%d,"description":"%s"}`,
-			req.ID,oldName,oldCode,oldStatus,oldProgress,oldDesc)
+		oldData := map[string]interface{}{"id":req.ID,"name":oldName,"code":oldCode,"status":oldStatus,"progress":oldProgress,"description":oldDesc}
+		oldJSONBytes, _ := json.Marshal(oldData)
+		oldJSON := string(oldJSONBytes)
 		// 更新
 		_, err := db.Exec(`UPDATE project SET name=?,code=?,status=?,progress=?,description=?,updated_at=NOW() WHERE id=?`,
 			req.Name,req.Code,req.Status,req.Progress,req.Description,req.ID)
@@ -269,8 +272,9 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 		var oldStatus int
 		db.QueryRow("SELECT name,code,status,description FROM project WHERE id=?",req.ID).
 			Scan(&oldName,&oldCode,&oldStatus,&oldDesc)
-		oldJSON := fmt.Sprintf(`{"id":%d,"name":"%s","code":"%s","status":%d,"description":"%s"}`,
-			req.ID,oldName,oldCode,oldStatus,oldDesc)
+		oldData := map[string]interface{}{"id":req.ID,"name":oldName,"code":oldCode,"status":oldStatus,"description":oldDesc}
+		oldJSONBytes, _ := json.Marshal(oldData)
+		oldJSON := string(oldJSONBytes)
 		_, err := db.Exec("UPDATE project SET status=4 WHERE id=?",req.ID)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":err.Error()})
@@ -290,10 +294,19 @@ func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 func projectDetailHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
-	id,_ := strconv.Atoi(r.URL.Path[len("/project/"):])
+	idStr := r.URL.Path[len("/project/"):]
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		http.Error(w, "项目不存在", http.StatusNotFound)
+		return
+	}
 	var p Project
-	db.QueryRow(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.id=?`,id).
+	err = db.QueryRow(`SELECT p.id,p.name,p.code,p.status,p.progress,p.start_date,p.end_date,COALESCE(u.real_name,u.username),p.description FROM project p LEFT JOIN user u ON p.manager_id=u.id WHERE p.id=?`,id).
 		Scan(&p.ID,&p.Name,&p.Code,&p.Status,&p.Progress,&p.StartDate,&p.EndDate,&p.ManagerName,&p.Description)
+	if err != nil || p.ID == 0 {
+		http.Error(w, "项目不存在", http.StatusNotFound)
+		return
+	}
 	var ss []ProjectStage
 	rows,err := db.Query("SELECT id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE project_id=? ORDER BY order_num",id)
 	if err == nil {
@@ -337,15 +350,24 @@ func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
 func stageDetailHandler(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Redirect(w,r,"/login",303); return }
-	id,_ := strconv.Atoi(r.URL.Path[len("/stage/"):])
+	idStr := r.URL.Path[len("/stage/"):]
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		http.Error(w, "阶段不存在", http.StatusNotFound)
+		return
+	}
 	
 	// 获取阶段信息
 	var s ProjectStage
-	db.QueryRow("SELECT id,project_id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE id=?",id).
+	err = db.QueryRow("SELECT id,project_id,name,code,order_num,status,progress,plan_start_date,plan_end_date FROM project_stage WHERE id=?",id).
 		Scan(&s.ID,&s.ProjectID,&s.Name,&s.Code,&s.OrderNum,&s.Status,&s.Progress,&s.PlanStartDate,&s.PlanEndDate)
+	if err != nil || s.ID == 0 {
+		http.Error(w, "阶段不存在", http.StatusNotFound)
+		return
+	}
 	// 格式化日期为 YYYY-MM-DD (input type="date" 需要的格式)
-	if len(s.PlanStartDate) > 10 { s.PlanStartDate = s.PlanStartDate[:10] }
-	if len(s.PlanEndDate) > 10 { s.PlanEndDate = s.PlanEndDate[:10] }
+	if len(s.PlanStartDate) >= 10 { s.PlanStartDate = s.PlanStartDate[:10] }
+	if len(s.PlanEndDate) >= 10 { s.PlanEndDate = s.PlanEndDate[:10] }
 	
 	// 获取项目信息
 	var p Project
@@ -431,14 +453,29 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			if e != nil { json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"上传失败"}); return }
 			defer f.Close()
 			pid,_ := strconv.Atoi(r.FormValue("project_id"))
+			if pid <= 0 {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"project_id 无效"})
+				return
+			}
 			sidStr := r.FormValue("stage_id")
 			var sid int
 			if sidStr != "" { sid,_ = strconv.Atoi(sidStr) }
 			os.MkdirAll(fmt.Sprintf("%s/%d",config.UploadDir,pid),0755)
-			fp := fmt.Sprintf("%s/%d/%s",config.UploadDir,pid,h.Filename)
-			dst,_ := os.Create(fp); defer dst.Close()
-			buf := make([]byte,32<<20); n,_ := f.Read(buf); dst.Write(buf[:n])
-			var err error
+			// 净化文件名，防止路径穿越
+			safeName := filepath.Base(h.Filename)
+			fp := fmt.Sprintf("%s/%d/%s",config.UploadDir,pid,safeName)
+			dst, err := os.Create(fp)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"创建文件失败"})
+				return
+			}
+			defer dst.Close()
+			// 使用 io.Copy 完整复制文件，避免大文件截断
+			_, err = io.Copy(dst, f)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"写入文件失败"})
+				return
+			}
 			if sid > 0 {
 				_, err = db.Exec(`INSERT INTO document(project_id,stage_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,?,1,?,NOW())`,
 					pid,sid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
@@ -475,8 +512,14 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 				Scan(&docProjectID,&docStageID,&docName,&docType,&docFilePath,&docFileName,&docFileSize,&docVersion,&docStatus,&docUploadedBy)
 			var oldJSON string
 			if err == nil {
-				oldJSON = fmt.Sprintf(`{"id":%d,"project_id":%d,"stage_id":%d,"name":"%s","type":"%s","file_name":"%s","file_path":"%s","file_size":%d,"version":"%s","status":%d}`,
-					req.ID,docProjectID,docStageID,docName,docType,docFileName,docFilePath,docFileSize,docVersion,docStatus)
+				oldData := map[string]interface{}{
+					"id":req.ID,"project_id":docProjectID,"stage_id":docStageID,
+					"name":docName,"type":docType,"file_name":docFileName,
+					"file_path":docFilePath,"file_size":docFileSize,
+					"version":docVersion,"status":docStatus,
+				}
+				oldJSONBytes, _ := json.Marshal(oldData)
+				oldJSON = string(oldJSONBytes)
 			} else {
 				oldJSON = fmt.Sprintf("query error:%v",err)
 			}
