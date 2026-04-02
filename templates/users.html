@@ -36,7 +36,7 @@
                 <td>
                     <button class="btn btn-sm btn-default" onclick="editUser({{.ID}},'{{.Username}}','{{.RealName}}','{{.Email}}',{{.IsAdmin}},{{.Status}})">编辑</button>
                     <button class="btn btn-sm btn-default" onclick="manageUserRole({{.ID}},'{{.Username}}')">分配角色</button>
-                    {{if index .UserFunctions "user:reset_password"}}<button class="btn btn-sm btn-warning" onclick="resetUserPassword({{.ID}},'{{.Username}}')">重置密码</button>{{end}}
+                    {{if .UserFunctions}} {{if index .UserFunctions "user:reset_password"}}<button class="btn btn-sm btn-warning" onclick="resetUserPassword({{.ID}},'{{.Username}}')">重置密码</button>{{end}} {{end}}
                 </td>
             </tr>
             {{end}}
