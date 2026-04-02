@@ -176,6 +176,8 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 func handleProjectsAPI(w http.ResponseWriter, r *http.Request, u *User) {
 	if r.Method == "POST" {
 		if !hasFunctionPermission(u, "project:create") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建项目，请联系管理员开通权限"})
 			return
 		}
@@ -444,10 +446,6 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/documents/api" {
 		if r.Method == "POST" {
-			if !hasFunctionPermission(u, "document:upload") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权上传文档，请联系管理员开通权限"})
-				return
-			}
 			r.ParseMultipartForm(32<<20)
 			f,h,e := r.FormFile("file")
 			if e != nil { json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"上传失败"}); return }
@@ -493,10 +491,6 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			}(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		} else if r.Method == "DELETE" {
-			if !hasFunctionPermission(u, "document:delete") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除文档，请联系管理员开通权限"})
-				return
-			}
 			var req struct {
 				ID int `json:"id"`
 			}
@@ -590,10 +584,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.ID == 0 {
 				// 新建用户
-				if !hasFunctionPermission(u, "user:create") {
-					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建用户，请联系管理员开通权限"})
-					return
-				}
 				if req.Password == "" {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"密码不能为空"})
 					return
@@ -607,10 +597,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 				auditLog(u.ID,"create","user","user",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
 				// 编辑用户 - 不修改密码，密码由用户自己修改
-				if !hasFunctionPermission(u, "user:edit") {
-					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑用户，请联系管理员开通权限"})
-					return
-				}
 				_, err := db.Exec(`UPDATE user SET username=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
 				if err != nil {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"更新失败："+err.Error()})
@@ -646,10 +632,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "PUT" {
 			// 保存用户角色
-			if !hasFunctionPermission(u, "user:edit") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权分配用户角色，请联系管理员开通权限"})
-				return
-			}
 			var req struct{ UserID int `json:"user_id"`; RoleIDs []int `json:"role_ids"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.UserID == 0 {
@@ -738,10 +720,6 @@ func menusHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/menus/api" {
 		if r.Method == "POST" {
-			if !hasFunctionPermission(u, "menu:edit") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权修改菜单，请联系管理员开通权限"})
-				return
-			}
 			var req struct {
 				ID       int    `json:"id"`
 				Name     string `json:"name"`
@@ -775,10 +753,6 @@ func menusHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "DELETE" {
-			if !hasFunctionPermission(u, "menu:delete") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除菜单，请联系管理员开通权限"})
-				return
-			}
 			var req struct{ ID int `json:"id"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.ID == 0 {
@@ -907,11 +881,7 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if req.ID == 0 {
-				// 创建角色 - 检查权限
-				if !hasFunctionPermission(u, "role:create") {
-					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建角色，请联系管理员开通权限"})
-					return
-				}
+				// 创建角色
 				_, err := db.Exec(`INSERT INTO role(name,code,description,status,created_at)VALUES(?,?,?,?,NOW())`,req.Name,req.Code,req.Description,req.Status)
 				if err != nil {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"创建失败："+err.Error()})
@@ -919,11 +889,7 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				auditLog(u.ID,"create","role","role",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
-				// 编辑角色 - 检查权限
-				if !hasFunctionPermission(u, "role:edit") {
-					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑角色，请联系管理员开通权限"})
-					return
-				}
+				// 编辑角色
 				_, err := db.Exec(`UPDATE role SET name=?,code=?,description=?,status=?,updated_at=NOW() WHERE id=?`,req.Name,req.Code,req.Description,req.Status,req.ID)
 				if err != nil {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"更新失败："+err.Error()})
@@ -937,10 +903,6 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
 			var req struct{ ID int `json:"id"` }
 			json.NewDecoder(r.Body).Decode(&req)
-			if !hasFunctionPermission(u, "role:delete") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除角色，请联系管理员开通权限"})
-				return
-			}
 			if req.ID == 0 {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"id 不能为空"})
 				return
@@ -980,13 +942,6 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/roles/menu" && r.Method == "POST" {
-		if !hasFunctionPermission(u, "role:menu") {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "无权修改角色权限，请联系管理员开通权限",
-			})
-			return
-		}
 		var req struct{ RoleID int `json:"role_id"`; MenuIDs []int `json:"menu_ids"` }
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.RoleID == 0 {
@@ -1034,13 +989,6 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/roles/function" && r.Method == "POST" {
-		if !hasFunctionPermission(u, "role:function") {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "无权修改角色权限，请联系管理员开通权限",
-			})
-			return
-		}
 		var req struct{ RoleID int `json:"role_id"`; FuncIDs []int `json:"function_ids"` }
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.RoleID == 0 {
@@ -1080,10 +1028,6 @@ func functionsHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/functions/api" {
 		if r.Method == "POST" {
-			if !hasFunctionPermission(u, "function:edit") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权修改功能，请联系管理员开通权限"})
-				return
-			}
 			var req struct {
 				ID          int    `json:"id"`
 				Name        string `json:"name"`
@@ -1179,25 +1123,26 @@ func main() {
 	http.Handle("/static/",http.StripPrefix("/static/",http.FileServer(http.Dir("./static"))))
 	http.HandleFunc("/login",loginHandler)
 	http.HandleFunc("/logout",logoutHandler)
-	http.HandleFunc("/documents/api",documentsHandler)
+	// API 路由使用权限中间件
+	http.HandleFunc("/documents/api", checkPermission("document:manage")(documentsHandler))
 	http.HandleFunc("/documents",documentsHandler)
 	http.HandleFunc("/projects",projectsHandler)
-	http.HandleFunc("/projects/api",projectsHandler)
+	http.HandleFunc("/projects/api", checkPermission("project:manage")(projectsHandler))
 	http.HandleFunc("/project/",projectDetailHandler)
-	http.HandleFunc("/project/stages/api",projectStagesAPI)
-	http.HandleFunc("/stage/api",stageAPI)
+	http.HandleFunc("/project/stages/api", checkPermission("project:edit")(projectStagesAPI))
+	http.HandleFunc("/stage/api", checkPermission("project:edit")(stageAPI))
 	http.HandleFunc("/stage/",stageDetailHandler)
-	http.HandleFunc("/users/api",usersHandler)
+	http.HandleFunc("/users/api", checkPermission("user:manage")(usersHandler))
 	http.HandleFunc("/users",usersHandler)
-	http.HandleFunc("/audit-logs",auditLogsHandler)
+	http.HandleFunc("/audit-logs", checkPermission("audit:view")(auditLogsHandler))
 	http.HandleFunc("/templates",templatesHandler)
-	http.HandleFunc("/menus/api",menusHandler)
+	http.HandleFunc("/menus/api", checkPermission("menu:edit")(menusHandler))
 	http.HandleFunc("/menus",menusHandler)
-	http.HandleFunc("/functions/api",functionsHandler)
+	http.HandleFunc("/functions/api", checkPermission("function:edit")(functionsHandler))
 	http.HandleFunc("/functions",functionsHandler)
-	http.HandleFunc("/roles/api",rolesHandler)
-	http.HandleFunc("/roles/menu",rolesHandler)
-	http.HandleFunc("/roles/function",rolesHandler)
+	http.HandleFunc("/roles/api", checkPermission("role:manage")(rolesHandler))
+	http.HandleFunc("/roles/menu", checkPermission("role:menu")(rolesHandler))
+	http.HandleFunc("/roles/function", checkPermission("role:function")(rolesHandler))
 	http.HandleFunc("/roles",rolesHandler)
 	http.HandleFunc("/",homeHandler)
 	log.Printf("PMS starting on port %d",config.ServerPort)
