@@ -19,6 +19,7 @@
                 <td>
                     <button class="btn btn-sm btn-default" onclick="editUser({{.ID}},'{{.Username}}','{{.RealName}}','{{.Email}}',{{.IsAdmin}},{{.Status}})">编辑</button>
                     <button class="btn btn-sm btn-default" onclick="manageUserRole({{.ID}},'{{.Username}}')">分配角色</button>
+                    {{if index .UserFunctions "user:reset_password"}}<button class="btn btn-sm btn-warning" onclick="resetUserPassword({{.ID}},'{{.Username}}')">重置密码</button>{{end}}
                 </td>
             </tr>
             {{end}}
@@ -161,6 +162,14 @@ async function saveUserRole(){
         var res=await r.json();
         if(res.success){alert('保存成功');window.location.reload()}else{alert('保存失败：'+res.message)}
     }catch(e){alert('保存失败：'+e.message);}
+}
+async function resetUserPassword(id,username){
+    if(!confirm('确定要将用户 "'+username+'" 的密码重置为 123 吗？')){return;}
+    try{
+        var r=await fetch('/users/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset_password',user_id:id})});
+        var res=await r.json();
+        if(res.success){alert('密码已重置为 123')}else{alert('重置失败：'+res.message)}
+    }catch(e){alert('重置失败：'+e.message);}
 }
 </script>
 {{end}}

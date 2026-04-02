@@ -368,6 +368,10 @@ func projectDetailHandler(w http.ResponseWriter, r *http.Request) {
 func projectStagesAPI(w http.ResponseWriter, r *http.Request) {
 	u := getSession(r)
 	if u == nil { http.Error(w,"Unauthorized",401); return }
+	if !hasFunctionPermission(u, "project:edit") {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑项目阶段，请联系管理员开通权限"})
+		return
+	}
 	var req struct {
 		StageID  int `json:"stage_id"`
 		Status   int `json:"status"`
@@ -433,6 +437,10 @@ func stageAPI(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Error(w,"Unauthorized",401); return }
 	
 	if r.Method == "PUT" {
+		if !hasFunctionPermission(u, "project:edit") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑项目阶段，请联系管理员开通权限"})
+			return
+		}
 		var req struct {
 			ID            int    `json:"id"`
 			OrderNum      int    `json:"order_num"`
@@ -472,6 +480,10 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/documents/api" {
 		if r.Method == "POST" {
+			if !hasFunctionPermission(u, "document:upload") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权上传文档，请联系管理员开通权限"})
+				return
+			}
 			r.ParseMultipartForm(32<<20)
 			f,h,e := r.FormFile("file")
 			if e != nil { json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"上传失败"}); return }
@@ -484,12 +496,17 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			fp := fmt.Sprintf("%s/%d/%s",config.UploadDir,pid,h.Filename)
 			dst,_ := os.Create(fp); defer dst.Close()
 			buf := make([]byte,32<<20); n,_ := f.Read(buf); dst.Write(buf[:n])
+			var err error
 			if sid > 0 {
-				db.Exec(`INSERT INTO document(project_id,stage_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,?,1,?,NOW())`,
+				_, err = db.Exec(`INSERT INTO document(project_id,stage_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,?,1,?,NOW())`,
 					pid,sid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
 			} else {
-				db.Exec(`INSERT INTO document(project_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,1,?,NOW())`,
+				_, err = db.Exec(`INSERT INTO document(project_id,name,type,file_path,file_name,file_size,status,uploaded_by,created_at)VALUES(?,?,?,?,?,?,1,?,NOW())`,
 					pid,r.FormValue("name"),r.FormValue("type"),fp,h.Filename,h.Size,u.ID)
+			}
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"上传失败："+err.Error()})
+				return
 			}
 			// 异步写入审计日志
 			go func(uid int, atype, acat, tbl string, rid int64, old, nw, ip, ua, url, meth string) {
@@ -497,6 +514,10 @@ func documentsHandler(w http.ResponseWriter, r *http.Request) {
 			}(u.ID,"upload","document","document",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
 		} else if r.Method == "DELETE" {
+			if !hasFunctionPermission(u, "document:delete") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除文档，请联系管理员开通权限"})
+				return
+			}
 			var req struct {
 				ID int `json:"id"`
 			}
@@ -544,6 +565,28 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/users/api" {
 		if r.Method == "POST" {
+			// 重置密码接口
+			var resetReq struct {
+				Action   string `json:"action"`
+				UserID   int    `json:"user_id"`
+			}
+			json.NewDecoder(r.Body).Decode(&resetReq)
+			if resetReq.Action == "reset_password" && resetReq.UserID > 0 {
+				if !hasFunctionPermission(u, "user:reset_password") {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权重置用户密码，请联系管理员开通权限"})
+					return
+				}
+				h,_ := bcrypt.GenerateFromPassword([]byte("123"),12)
+				_, err := db.Exec(`UPDATE user SET password_hash=?,updated_at=NOW() WHERE id=?`, h, resetReq.UserID)
+				if err != nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"重置失败："+err.Error()})
+					return
+				}
+				auditLog(u.ID,"reset_password","user","user",int64(resetReq.UserID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":true,"message":"密码已重置为 123"})
+				return
+			}
+			
 			var req struct {
 				ID       int    `json:"id"`
 				Username string `json:"username"`
@@ -572,17 +615,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 				db.Exec(`INSERT INTO user(username,password_hash,real_name,email,is_admin,status,created_at)VALUES(?,?,?,?,?,?,NOW())`,req.Username,string(h),req.RealName,req.Email,req.IsAdmin,req.Status)
 				auditLog(u.ID,"create","user","user",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
-				// 编辑用户
+				// 编辑用户 - 不修改密码，密码由用户自己修改
 				if !hasFunctionPermission(u, "user:edit") {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑用户，请联系管理员开通权限"})
 					return
 				}
-				if req.Password != "" {
-					h,_ := bcrypt.GenerateFromPassword([]byte(req.Password),12)
-					db.Exec(`UPDATE user SET username=?,password_hash=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,string(h),req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
-				} else {
-					db.Exec(`UPDATE user SET username=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
-				}
+				db.Exec(`UPDATE user SET username=?,real_name=?,email=?,is_admin=?,status=?,updated_at=NOW() WHERE id=?`,req.Username,req.RealName,req.Email,req.IsAdmin,req.Status,req.ID)
 				auditLog(u.ID,"update","user","user",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			}
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
@@ -678,6 +716,10 @@ func menusHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/menus/api" {
 		if r.Method == "POST" {
+			if !hasFunctionPermission(u, "menu:edit") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权修改菜单，请联系管理员开通权限"})
+				return
+			}
 			var req struct {
 				ID       int    `json:"id"`
 				Name     string `json:"name"`
@@ -703,6 +745,10 @@ func menusHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "DELETE" {
+			if !hasFunctionPermission(u, "menu:delete") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除菜单，请联系管理员开通权限"})
+				return
+			}
 			var req struct{ ID int `json:"id"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			db.Exec(`DELETE FROM menu WHERE id=?`,req.ID)
@@ -826,7 +872,11 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权创建角色，请联系管理员开通权限"})
 					return
 				}
-				db.Exec(`INSERT INTO role(name,code,description,status,created_at)VALUES(?,?,?,?,1,NOW())`,req.Name,req.Code,req.Description,req.Status)
+				_, err := db.Exec(`INSERT INTO role(name,code,description,status,created_at)VALUES(?,?,?,?,NOW())`,req.Name,req.Code,req.Description,req.Status)
+				if err != nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"创建失败："+err.Error()})
+					return
+				}
 				auditLog(u.ID,"create","role","role",0,"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			} else {
 				// 编辑角色 - 检查权限
@@ -834,7 +884,11 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权编辑角色，请联系管理员开通权限"})
 					return
 				}
-				db.Exec(`UPDATE role SET name=?,code=?,description=?,status=?,updated_at=NOW() WHERE id=?`,req.Name,req.Code,req.Description,req.Status,req.ID)
+				_, err := db.Exec(`UPDATE role SET name=?,code=?,description=?,status=?,updated_at=NOW() WHERE id=?`,req.Name,req.Code,req.Description,req.Status,req.ID)
+				if err != nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"更新失败："+err.Error()})
+					return
+				}
 				auditLog(u.ID,"update","role","role",int64(req.ID),"","",r.RemoteAddr,r.UserAgent(),r.URL.Path,r.Method)
 			}
 			json.NewEncoder(w).Encode(map[string]interface{}{"success":true})
@@ -874,6 +928,13 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/roles/menu" && r.Method == "POST" {
+		if !hasFunctionPermission(u, "role:menu") {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无权修改角色权限，请联系管理员开通权限",
+			})
+			return
+		}
 		var req struct{ RoleID int `json:"role_id"`; MenuIDs []int `json:"menu_ids"` }
 		json.NewDecoder(r.Body).Decode(&req)
 		db.Exec(`DELETE FROM role_menu WHERE role_id=?`,req.RoleID)
@@ -904,6 +965,13 @@ func rolesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/roles/function" && r.Method == "POST" {
+		if !hasFunctionPermission(u, "role:function") {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无权修改角色权限，请联系管理员开通权限",
+			})
+			return
+		}
 		var req struct{ RoleID int `json:"role_id"`; FuncIDs []int `json:"function_ids"` }
 		json.NewDecoder(r.Body).Decode(&req)
 		db.Exec(`DELETE FROM role_function WHERE role_id=?`,req.RoleID)
@@ -928,6 +996,10 @@ func functionsHandler(w http.ResponseWriter, r *http.Request) {
 	if u == nil { http.Redirect(w,r,"/login",303); return }
 	if r.URL.Path == "/functions/api" {
 		if r.Method == "POST" {
+			if !hasFunctionPermission(u, "function:edit") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权修改功能，请联系管理员开通权限"})
+				return
+			}
 			var req struct {
 				ID          int    `json:"id"`
 				Name        string `json:"name"`
@@ -954,6 +1026,10 @@ func functionsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "DELETE" {
+			if !hasFunctionPermission(u, "function:delete") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除功能，请联系管理员开通权限"})
+				return
+			}
 			var req struct{ ID int `json:"id"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			db.Exec(`DELETE FROM system_function WHERE id=?`,req.ID)
