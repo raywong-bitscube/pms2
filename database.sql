@@ -125,6 +125,72 @@ CREATE TABLE `template_stage` (
   CONSTRAINT `fk_template_stage_template` FOREIGN KEY (`template_id`) REFERENCES `project_template` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模板阶段表';
 
+-- 7b. menu (菜单表)
+DROP TABLE IF EXISTS `menu`;
+CREATE TABLE `menu` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键 ID',
+  `name` VARCHAR(50) NOT NULL COMMENT '菜单名称',
+  `code` VARCHAR(50) NOT NULL COMMENT '菜单代码',
+  `icon` VARCHAR(50) DEFAULT 'fa-circle' COMMENT '图标类名',
+  `url` VARCHAR(100) DEFAULT '#' COMMENT '菜单 URL',
+  `parent_id` BIGINT UNSIGNED DEFAULT 0 COMMENT '父菜单 ID',
+  `order_num` INT NOT NULL DEFAULT 0 COMMENT '排序号',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1=active, 0=inactive',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_parent` (`parent_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜单表';
+
+-- 7c. system_function (系统功能表)
+DROP TABLE IF EXISTS `system_function`;
+CREATE TABLE `system_function` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键 ID',
+  `menu_id` BIGINT UNSIGNED NOT NULL COMMENT '所属菜单 ID',
+  `name` VARCHAR(50) NOT NULL COMMENT '功能名称',
+  `code` VARCHAR(50) NOT NULL COMMENT '功能代码',
+  `url` VARCHAR(100) DEFAULT '' COMMENT 'API URL',
+  `method` VARCHAR(10) DEFAULT 'GET' COMMENT 'HTTP 方法',
+  `description` VARCHAR(200) DEFAULT '' COMMENT '功能描述',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1=active, 0=inactive',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_menu` (`menu_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统功能表';
+
+-- 7d. role_menu (角色菜单权限表)
+DROP TABLE IF EXISTS `role_menu`;
+CREATE TABLE `role_menu` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键 ID',
+  `role_id` BIGINT UNSIGNED NOT NULL COMMENT '角色 ID',
+  `menu_id` BIGINT UNSIGNED NOT NULL COMMENT '菜单 ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_menu` (`role_id`, `menu_id`),
+  KEY `idx_menu_id` (`menu_id`),
+  CONSTRAINT `fk_role_menu_role` FOREIGN KEY (`role_id`) REFERENCES `role` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_role_menu_menu` FOREIGN KEY (`menu_id`) REFERENCES `menu` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色菜单权限表';
+
+-- 7e. role_function (角色功能权限表)
+DROP TABLE IF EXISTS `role_function`;
+CREATE TABLE `role_function` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键 ID',
+  `role_id` BIGINT UNSIGNED NOT NULL COMMENT '角色 ID',
+  `function_id` BIGINT UNSIGNED NOT NULL COMMENT '功能 ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_function` (`role_id`, `function_id`),
+  KEY `idx_function_id` (`function_id`),
+  CONSTRAINT `fk_role_function_role` FOREIGN KEY (`role_id`) REFERENCES `role` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_role_function_function` FOREIGN KEY (`function_id`) REFERENCES `system_function` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色功能权限表';
+
 -- 8. project (项目表)
 DROP TABLE IF EXISTS `project`;
 CREATE TABLE `project` (
@@ -328,6 +394,69 @@ INSERT INTO `system_constant` (`category`, `const_key`, `const_value`, `display_
 ('ActionType', 'export', 'export', '导出', 6, 1),
 ('ActionType', 'upload', 'upload', '上传', 7, 1),
 ('ActionType', 'download', 'download', '下载', 8, 1);
+
+-- 插入菜单
+INSERT INTO `menu` (`name`, `code`, `icon`, `url`, `parent_id`, `order_num`, `status`) VALUES
+('首页', 'dashboard', 'fa-home', '/', 0, 1),
+('项目管理', 'project', 'fa-folder', '/projects', 0, 2),
+('用户管理', 'user', 'fa-users', '/users', 0, 3),
+('角色管理', 'role', 'fa-user-tag', '/roles', 0, 4),
+('菜单管理', 'menu', 'fa-bars', '/menus', 0, 5),
+('功能管理', 'function', 'fa-cog', '/functions', 0, 6),
+('审计日志', 'audit', 'fa-history', '/audit-logs', 0, 7),
+('文档管理', 'document', 'fa-file', '/documents', 0, 8);
+
+-- 插入系统功能
+INSERT INTO `system_function` (`menu_id`, `name`, `code`, `url`, `method`, `description`, `status`) VALUES
+(1, '查看仪表盘', 'dashboard:view', '/dashboard', 'GET', '查看首页仪表盘', 1),
+(2, '查看项目列表', 'project:list', '/projects', 'GET', '查看项目列表', 1),
+(2, '创建项目', 'project:create', '/projects/api', 'POST', '创建新项目', 1),
+(2, '编辑项目', 'project:edit', '/projects/api', 'PUT', '编辑项目信息', 1),
+(2, '删除项目', 'project:delete', '/projects/api', 'DELETE', '删除项目', 1),
+(2, '项目管理', 'project:manage', '/projects/api', 'POST', '项目管理（包含创建/编辑/删除）', 1),
+(3, '查看用户列表', 'user:list', '/users', 'GET', '查看用户列表', 1),
+(3, '创建用户', 'user:create', '/users/api', 'POST', '创建新用户', 1),
+(3, '编辑用户', 'user:edit', '/users/api', 'PUT', '编辑用户信息', 1),
+(3, '删除用户', 'user:delete', '/users/api', 'DELETE', '删除用户', 1),
+(3, '重置密码', 'user:reset_password', '/users/api', 'POST', '重置用户密码', 1),
+(3, '用户管理', 'user:manage', '/users/api', 'POST', '用户管理（包含创建/编辑/删除）', 1),
+(4, '查看角色列表', 'role:list', '/roles', 'GET', '查看角色列表', 1),
+(4, '创建角色', 'role:create', '/roles/api', 'POST', '创建新角色', 1),
+(4, '编辑角色', 'role:edit', '/roles/api', 'PUT', '编辑角色信息', 1),
+(4, '删除角色', 'role:delete', '/roles/api', 'DELETE', '删除角色', 1),
+(4, '角色管理', 'role:manage', '/roles/api', 'POST', '角色管理（包含创建/编辑/删除）', 1),
+(4, '分配菜单权限', 'role:menu', '/roles/menu', 'POST', '为角色分配菜单权限', 1),
+(4, '分配功能权限', 'role:function', '/roles/function', 'POST', '为角色分配功能权限', 1),
+(5, '查看菜单列表', 'menu:list', '/menus', 'GET', '查看菜单列表', 1),
+(5, '编辑菜单', 'menu:edit', '/menus/api', 'POST', '编辑菜单（包含创建/更新）', 1),
+(5, '删除菜单', 'menu:delete', '/menus/api', 'DELETE', '删除菜单', 1),
+(6, '查看功能列表', 'function:list', '/functions', 'GET', '查看功能列表', 1),
+(6, '功能管理', 'function:manage', '/functions/api', 'POST', '功能管理（包含创建/编辑/删除）', 1),
+(7, '查看审计日志', 'audit:view', '/audit-logs', 'GET', '查看审计日志', 1),
+(8, '查看文档列表', 'document:list', '/documents', 'GET', '查看文档列表', 1),
+(8, '文档管理', 'document:manage', '/documents/api', 'POST', '文档管理（包含上传/删除）', 1);
+
+-- 插入角色（管理员）
+INSERT INTO `role` (`name`, `code`, `description`, `status`) VALUES
+('系统管理员', 'admin', '拥有所有权限的系统管理员', 1),
+('普通用户', 'user', '普通用户，只有基本查看权限', 1);
+
+-- 为管理员角色分配所有菜单权限
+INSERT INTO `role_menu` (`role_id`, `menu_id`) 
+SELECT 1, id FROM menu;
+
+-- 为管理员角色分配所有功能权限
+INSERT INTO `role_function` (`role_id`, `function_id`) 
+SELECT 1, id FROM system_function;
+
+-- 为普通用户角色分配基本查看权限
+INSERT INTO `role_menu` (`role_id`, `menu_id`) VALUES
+(2, 1), -- 首页
+(2, 2); -- 项目管理
+
+INSERT INTO `role_function` (`role_id`, `function_id`) VALUES
+(2, 1), -- dashboard:view
+(2, 2); -- project:list
 
 -- 插入项目模板（软件开发 v1）
 INSERT INTO `project_template` (`name`, `code`, `version`, `type`, `description`, `status`, `created_by`) VALUES

@@ -1062,10 +1062,6 @@ func functionsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "DELETE" {
-			if !hasFunctionPermission(u, "function:delete") {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权删除功能，请联系管理员开通权限"})
-				return
-			}
 			var req struct{ ID int `json:"id"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.ID == 0 {
@@ -1138,7 +1134,7 @@ func main() {
 	http.HandleFunc("/templates",templatesHandler)
 	http.HandleFunc("/menus/api", checkPermission("menu:edit")(menusHandler))
 	http.HandleFunc("/menus",menusHandler)
-	http.HandleFunc("/functions/api", checkPermission("function:edit")(functionsHandler))
+	http.HandleFunc("/functions/api", checkPermission("function:manage")(functionsHandler))
 	http.HandleFunc("/functions",functionsHandler)
 	http.HandleFunc("/roles/api", checkPermission("role:manage")(rolesHandler))
 	http.HandleFunc("/roles/menu", checkPermission("role:menu")(rolesHandler))
