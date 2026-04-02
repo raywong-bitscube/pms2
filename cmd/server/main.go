@@ -568,6 +568,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			
+			// 新建/编辑用户
+			if !hasFunctionPermission(u, "user:manage") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权操作用户，请联系管理员开通权限"})
+				return
+			}
+			
 			var req struct {
 				ID       int    `json:"id"`
 				Username string `json:"username"`
@@ -608,7 +614,11 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "GET" {
-			// 获取用户角色
+			// 获取用户角色 - 需要 user:manage 权限
+			if !hasFunctionPermission(u, "user:manage") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权访问"})
+				return
+			}
 			userID := r.URL.Query().Get("user_id")
 			type Role struct {
 				ID   int    `json:"id"`
@@ -631,7 +641,11 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == "PUT" {
-			// 保存用户角色
+			// 保存用户角色 - 需要 user:manage 权限
+			if !hasFunctionPermission(u, "user:manage") {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success":false,"message":"无权分配用户角色，请联系管理员开通权限"})
+				return
+			}
 			var req struct{ UserID int `json:"user_id"`; RoleIDs []int `json:"role_ids"` }
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.UserID == 0 {
@@ -1128,7 +1142,7 @@ func main() {
 	http.HandleFunc("/project/stages/api", checkPermission("project:edit")(projectStagesAPI))
 	http.HandleFunc("/stage/api", checkPermission("project:edit")(stageAPI))
 	http.HandleFunc("/stage/",stageDetailHandler)
-	http.HandleFunc("/users/api", checkPermission("user:manage")(usersHandler))
+	http.HandleFunc("/users/api", usersHandler)  // usersHandler 内部处理不同方法的权限
 	http.HandleFunc("/users",usersHandler)
 	http.HandleFunc("/audit-logs", checkPermission("audit:view")(auditLogsHandler))
 	http.HandleFunc("/templates",templatesHandler)
